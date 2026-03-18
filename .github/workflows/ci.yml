@@ -19,8 +19,8 @@ jobs:
   # Tests document loading, parsing, chunking, embeddings, and Pinecone upload
   # [DISABLED FOR NOW - Keeping code for next CI run]
   # =========================================================================
-  test-data-ingestion:
-    name: 'Stage 1: Data Ingestion Module Tests'
+  stage-1-data-ingestion:
+    name: Stage 1 - Data Ingestion
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -111,11 +111,11 @@ jobs:
   # Tests query optimization, hybrid search, reranking, memory management
   # [DISABLED FOR NOW - Keeping code for next CI run]
   # =========================================================================
-  test-retrieval:
+  stage-2-retrieval:
     name: 'Stage 2: Retrieval Module Tests'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: test-data-ingestion
+    needs: stage-1-data-ingestion
 
     steps:
       - name: Checkout code
@@ -229,10 +229,11 @@ jobs:
   # STAGE 3: ARGUMENTATION & EVALUATION TESTS
   # Tests response generation, LangSmith tracing, RAGAS metrics, regression
   # =========================================================================
-  test-argumentation-evaluation:
+  stage-3-argumentation-evaluation:
     name: 'Stage 3: Argumentation & Evaluation Tests'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: [stage-1-data-ingestion, stage-2-retrieval]
     # Note: Stages 1 & 2 are skipped, so no dependencies needed
 
     steps:
@@ -344,7 +345,7 @@ jobs:
   code-quality:
     name: 'Code Quality & Coverage Analysis'
     runs-on: ubuntu-latest
-    needs: [test-argumentation-evaluation]  # Only depends on stage 3
+    needs: [stage-3-argumentation-evaluation]  # Only depends on stage 3
 
     env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -415,7 +416,7 @@ jobs:
     name: 'Generate Final Report & Notify'
     runs-on: ubuntu-latest
     if: always()
-    needs: [test-data-ingestion, test-retrieval, test-argumentation-evaluation, code-quality]
+    needs: [stage-1-data-ingestion, stage-2-retrieval, stage-3-argumentation-evaluation, code-quality]
 
     steps:
       - name: Checkout code
@@ -453,9 +454,9 @@ jobs:
       - name: Determine overall status
         id: overall_status
         run: |
-          if [[ "${{ job.test-data-ingestion.status }}" == "failure" ]] || \
-             [[ "${{ job.test-retrieval.status }}" == "failure" ]] || \
-             [[ "${{ job.test-argumentation-evaluation.status }}" == "failure" ]]; then
+          if [[ "${{ job.stage-1-data-ingestion.status }}" == "failure" ]] || \
+             [[ "${{ job.stage-2-retrieval.status }}" == "failure" ]] || \
+             [[ "${{ job.stage-3-argumentation-evaluation.status }}" == "failure" ]]; then
             echo "status=failure" >> $GITHUB_OUTPUT
           else
             echo "status=success" >> $GITHUB_OUTPUT
@@ -470,7 +471,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## ✅ CI/CD Pipeline Complete\n\n### Test Results\n- **Stage 1**: Data Ingestion - ${{ job.test-data-ingestion.status }}\n- **Stage 2**: Retrieval - ${{ job.test-retrieval.status }}\n- **Stage 3**: Argumentation & Evaluation - ${{ job.test-argumentation-evaluation.status }}\n\n[View detailed results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              body: `## ✅ CI/CD Pipeline Complete\n\n### Test Results\n- **Stage 1**: Data Ingestion - ${{ job.stage-1-data-ingestion.status }}\n- **Stage 2**: Retrieval - ${{ job.stage-2-retrieval.status }}\n- **Stage 3**: Argumentation & Evaluation - ${{ job.stage-3-argumentation-evaluation.status }}\n\n[View detailed results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
             })
 
       - name: Fail if tests failed
