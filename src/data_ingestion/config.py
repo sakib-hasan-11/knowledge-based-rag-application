@@ -55,7 +55,9 @@ class Config:
         # ============================================================================
         # OpenAI Configuration
         # ============================================================================
-        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        self.OPENAI_API_KEY = os.getenv(
+            "GITHUB_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY")
+        )
         self.EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
         # Safe type conversion with error handling
