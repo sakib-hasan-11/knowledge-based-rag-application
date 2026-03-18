@@ -19,9 +19,9 @@ from typing import Dict, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from data_ingestion.config import Config
-from data_ingestion.logging_config import PipelineLogger
+from data_ingestion.logging_config import create_logger
 
-logger = PipelineLogger.create_logger(__name__)
+logger = create_logger(__name__)
 
 
 @dataclass

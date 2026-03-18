@@ -21,7 +21,7 @@ from generation_components import (
 )
 
 from data_ingestion.config import Config
-from data_ingestion.logging_config import PipelineLogger
+from data_ingestion.logging_config import create_logger
 
 try:
     from langchain.chat_models import ChatOpenAI
@@ -34,7 +34,7 @@ except ImportError:
         ChatOpenAI = None
         HumanMessage = None
 
-logger = PipelineLogger.create_logger(__name__)
+logger = create_logger(__name__)
 
 
 class ArgumentationPipeline:

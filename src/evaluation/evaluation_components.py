@@ -17,9 +17,9 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from data_ingestion.config import Config
-from data_ingestion.logging_config import PipelineLogger
+from src.data_ingestion.logging_config import create_logger
 
-logger = PipelineLogger.create_logger(__name__)
+logger = create_logger(__name__)
 
 # Try importing RAGAS and LangSmith
 try:

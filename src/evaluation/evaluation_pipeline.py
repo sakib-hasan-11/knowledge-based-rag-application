@@ -18,9 +18,9 @@ from evaluation_components import RAGASMetricsEvaluator, RAGEvaluator, Regressio
 from evaluation_reporter import EvaluationReporter
 
 from data_ingestion.config import Config
-from data_ingestion.logging_config import PipelineLogger
+from src.data_ingestion.logging_config import create_logger
 
-logger = PipelineLogger.create_logger(__name__)
+logger = create_logger(__name__)
 
 # Try importing LangSmith
 try:

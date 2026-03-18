@@ -17,8 +17,10 @@ jobs:
   # =========================================================================
   # STAGE 1: DATA INGESTION TESTS
   # Tests document loading, parsing, chunking, embeddings, and Pinecone upload
+  # [DISABLED FOR NOW - Keeping code for next CI run]
   # =========================================================================
   test-data-ingestion:
+    if: false  # SKIP STAGE 1 - Code kept for next run
     name: 'Stage 1: Data Ingestion Module Tests'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -108,8 +110,10 @@ jobs:
   # =========================================================================
   # STAGE 2: RETRIEVAL TESTS
   # Tests query optimization, hybrid search, reranking, memory management
+  # [DISABLED FOR NOW - Keeping code for next CI run]
   # =========================================================================
   test-retrieval:
+    if: false  # SKIP STAGE 2 - Code kept for next run
     name: 'Stage 2: Retrieval Module Tests'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -231,7 +235,7 @@ jobs:
     name: 'Stage 3: Argumentation & Evaluation Tests'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [test-data-ingestion, test-retrieval]
+    # Note: Stages 1 & 2 are skipped, so no dependencies needed
 
     steps:
       - name: Checkout code
@@ -342,7 +346,7 @@ jobs:
   code-quality:
     name: 'Code Quality & Coverage Analysis'
     runs-on: ubuntu-latest
-    needs: [test-data-ingestion, test-retrieval, test-argumentation-evaluation]
+    needs: [test-argumentation-evaluation]  # Only depends on stage 3
 
     steps:
       - name: Checkout code

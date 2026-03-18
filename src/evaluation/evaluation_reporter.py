@@ -14,9 +14,9 @@ from typing import Dict, List, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from data_ingestion.logging_config import PipelineLogger
+from src.data_ingestion.logging_config import create_logger
 
-logger = PipelineLogger.create_logger(__name__)
+logger = create_logger(__name__)
 
 
 class EvaluationReporter:
