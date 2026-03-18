@@ -141,7 +141,13 @@ class S3DocumentLoader:
 
         try:
             response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
-            content = response["Body"].read().decode("utf-8")
+            body_content = response["Body"].read()
+
+            # Handle both bytes and string content
+            if isinstance(body_content, bytes):
+                content = body_content.decode("utf-8")
+            else:
+                content = body_content
 
             self.logger.info(
                 f"Loaded document from S3",

@@ -102,10 +102,12 @@ class TestS3DocumentLoader(unittest.TestCase):
     @patch("boto3.client")
     def test_load_document_from_s3(self, mock_boto_client):
         """Test loading a specific document from S3"""
+        from io import BytesIO
+
         mock_client = MagicMock()
         mock_client.get_object.return_value = {
-            "Body": StringIO(
-                "<html><body><h1>Item 1A: Risk Factors</h1><p>Test content</p></body></html>"
+            "Body": BytesIO(
+                b"<html><body><h1>Item 1A: Risk Factors</h1><p>Test content</p></body></html>"
             )
         }
         mock_boto_client.return_value = mock_client
@@ -121,10 +123,12 @@ class TestS3DocumentLoader(unittest.TestCase):
     @patch("boto3.client")
     def test_load_document_with_retry_logic(self, mock_boto_client):
         """Test retry logic for failed S3 downloads"""
+        from io import BytesIO
+
         mock_client = MagicMock()
         mock_client.get_object.side_effect = [
             Exception("ConnectionError"),
-            {"Body": StringIO("<html><body>Content</body></html>")},
+            {"Body": BytesIO(b"<html><body>Content</body></html>")},
         ]
         mock_boto_client.return_value = mock_client
 
