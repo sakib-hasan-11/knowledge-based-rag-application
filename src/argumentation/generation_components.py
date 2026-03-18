@@ -282,18 +282,28 @@ class ConversationMemoryManager:
     to S3 for multi-session retrieval.
     """
 
-    def __init__(self, s3_client, bucket_name: str, max_window: int = 5):
+    def __init__(
+        self,
+        s3_client,
+        bucket_name: str,
+        max_window: int = 5,
+        max_memory_messages: Optional[int] = None,
+    ):
         """
         Initialize memory manager.
 
         Args:
             s3_client: boto3 S3 client
             bucket_name: S3 bucket for chat history
-            max_window: Number of recent interactions to keep in memory
+            max_window: Number of recent interactions to keep in memory (deprecated: use max_memory_messages)
+            max_memory_messages: Number of recent interactions to keep in memory (takes precedence over max_window)
         """
         self.s3_client = s3_client
         self.bucket_name = bucket_name
-        self.max_window = max_window
+        # Support both parameter names; max_memory_messages takes precedence
+        self.max_window = (
+            max_memory_messages if max_memory_messages is not None else max_window
+        )
         self.session_id = str(uuid.uuid4())
         self.conversation_buffer: List[Dict] = []
         self.summary = ""
@@ -302,7 +312,7 @@ class ConversationMemoryManager:
             f"ConversationMemoryManager initialized",
             extra_data={
                 "session_id": self.session_id,
-                "max_window": max_window,
+                "max_window": self.max_window,
                 "bucket_name": bucket_name,
             },
         )
