@@ -86,7 +86,9 @@ class EvaluationPipeline:
                 self.langsmith_tracer = LangChainTracer(
                     project_name=project, client=ls_client
                 )
-                logger.info(f"LangSmith tracing enabled", extra={"project": project})
+                logger.info(
+                    f"LangSmith tracing enabled", extra_data={"project": project}
+                )
             except Exception as e:
                 logger.warning(f"Could not initialize LangSmith: {str(e)}")
 
@@ -372,7 +374,7 @@ class EvaluationStatistics:
                 "regressions_detected_count": self.regressions_detected,
             }
 
-            logger.info(f"Evaluation statistics summary", extra=summary)
+            logger.info(f"Evaluation statistics summary", extra_data=summary)
             return summary
         except Exception as e:
             logger.error(f"Error getting statistics summary: {str(e)}", exc_info=True)

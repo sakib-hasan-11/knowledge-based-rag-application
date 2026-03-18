@@ -82,12 +82,114 @@ STRICT RULES:
         self.system_prompt = custom_system_prompt or self.SYSTEM_PROMPT
         logger.info(
             "PromptTemplateBuilder initialized",
-            extra={"custom_prompt": custom_system_prompt is not None},
+            extra_data={"custom_prompt": custom_system_prompt is not None},
         )
 
     def build_system_prompt(self) -> str:
         """Get system prompt."""
         return self.system_prompt
+
+    def build_prompt(
+        self,
+        query: str,
+        context: str,
+        conversation_history: Optional[List[Dict]] = None,
+        include_guardrails: bool = True,
+    ) -> str:
+        """
+        Build complete prompt with all components.
+
+        Comprehensive method that handles query, context, conversation history,
+        and optional anti-hallucination guardrails.
+
+        Args:
+            query: User query (required)
+            context: Retrieved context documents
+            conversation_history: List of previous interactions [{"role": "user"/"assistant", "content": "..."}]
+            include_guardrails: Whether to include anti-hallucination instructions
+
+        Returns:
+            Complete prompt ready for LLM
+
+        Raises:
+            ValueError: If query or context is invalid
+        """
+        try:
+            # Validate inputs
+            if not query or not isinstance(query, str):
+                raise ValueError(
+                    f"query must be a non-empty string, got {type(query).__name__}"
+                )
+            if not context:
+                context = ""
+            if not isinstance(context, str):
+                raise ValueError(
+                    f"context must be a string, got {type(context).__name__}"
+                )
+
+            # Build conversation history section if provided
+            history_section = ""
+            if conversation_history:
+                if not isinstance(conversation_history, list):
+                    raise ValueError(
+                        f"conversation_history must be a list, got {type(conversation_history).__name__}"
+                    )
+
+                history_lines = []
+                for i, interaction in enumerate(
+                    conversation_history[-5:]
+                ):  # Keep last 5
+                    if isinstance(interaction, dict):
+                        role = interaction.get("role", "unknown")
+                        content = interaction.get("content", "")
+                        history_lines.append(
+                            f"{role}: {content[:200]}"
+                        )  # Truncate to 200 char
+
+                if history_lines:
+                    history_section = (
+                        "Previous Conversation:\n" + "\n".join(history_lines) + "\n\n"
+                    )
+
+            # Build guardrails section if requested
+            guardrails_section = ""
+            if include_guardrails:
+                guardrails_section = """IMPORTANT RULES:
+- Only answer based on the provided context
+- If context doesn't contain the answer, say "I don't have this information"
+- Always cite your sources
+- Do not speculate or make assumptions
+- Be honest about uncertainty
+
+"""
+
+            # Compose final prompt
+            prompt = f"""{guardrails_section}{history_section}Context:
+{context if context else "No context provided"}
+
+Question: {query}
+
+Provide your answer with citations:"""
+
+            # Validate prompt length (warn if too long)
+            if len(prompt) > 8000:
+                logger.warning(
+                    "Prompt exceeds 8000 characters",
+                    extra_data={
+                        "prompt_length": len(prompt),
+                        "context_length": len(context),
+                        "query_length": len(query),
+                    },
+                )
+
+            return prompt
+
+        except ValueError as e:
+            logger.error(f"Invalid prompt parameters: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error building prompt: {str(e)}", exc_info=True)
+            raise
 
     def build_user_prompt(
         self, query: str, context: str, memory_summary: str = ""
@@ -126,7 +228,7 @@ Answer:"""
 
             logger.debug(
                 f"User prompt built",
-                extra={"query_length": len(query), "context_length": len(context)},
+                extra_data={"query_length": len(query), "context_length": len(context)},
             )
             return prompt
         except Exception as e:
@@ -198,7 +300,7 @@ class ConversationMemoryManager:
 
         logger.info(
             f"ConversationMemoryManager initialized",
-            extra={
+            extra_data={
                 "session_id": self.session_id,
                 "max_window": max_window,
                 "bucket_name": bucket_name,
@@ -237,7 +339,7 @@ class ConversationMemoryManager:
 
             logger.debug(
                 f"Interaction added to buffer",
-                extra={"buffer_size": len(self.conversation_buffer)},
+                extra_data={"buffer_size": len(self.conversation_buffer)},
             )
         except Exception as e:
             logger.error(f"Error adding interaction: {str(e)}", exc_info=True)
@@ -248,7 +350,7 @@ class ConversationMemoryManager:
             self.summary = summary_text
             logger.debug(
                 f"Conversation summary updated",
-                extra={"summary_length": len(summary_text)},
+                extra_data={"summary_length": len(summary_text)},
             )
         except Exception as e:
             logger.error(f"Error updating summary: {str(e)}", exc_info=True)
@@ -351,6 +453,94 @@ class ConversationMemoryManager:
         except Exception as e:
             logger.warning(f"Error loading session from S3: {str(e)}")
             return False
+
+    def save_conversation(self, conversation_id: str, conversation: Dict) -> bool:
+        """
+        Save specific conversation or interaction to S3 by ID.
+
+        Production API for saving conversations with custom IDs.
+
+        Args:
+            conversation_id: Unique identifier for conversation
+            conversation: Conversation data to save (can be full dict or list)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not conversation_id or not isinstance(conversation_id, str):
+                raise ValueError(
+                    f"conversation_id must be non-empty string, got {type(conversation_id).__name__}"
+                )
+
+            # Ensure conversation has timestamp if not provided
+            if isinstance(conversation, dict):
+                if "timestamp" not in conversation:
+                    conversation["timestamp"] = datetime.utcnow().isoformat()
+                if "conversation_id" not in conversation:
+                    conversation["conversation_id"] = conversation_id
+
+            key = f"conversations/{conversation_id}/data.json"
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=key,
+                Body=json.dumps(conversation, indent=2),
+                ContentType="application/json",
+            )
+
+            logger.info(
+                f"Conversation saved",
+                extra_data={
+                    "conversation_id": conversation_id,
+                    "s3_key": key,
+                    "data_size": len(json.dumps(conversation)),
+                },
+            )
+            return True
+        except ValueError as e:
+            logger.error(f"Invalid conversation parameters: {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"Error saving conversation to S3: {str(e)}", exc_info=True)
+            return False
+
+    def load_conversation(self, conversation_id: str) -> Optional[Dict]:
+        """
+        Load specific conversation from S3 by ID.
+
+        Production API for loading conversations.
+
+        Args:
+            conversation_id: Unique identifier for conversation
+
+        Returns:
+            Conversation data if found, None if not found or error
+        """
+        try:
+            if not conversation_id or not isinstance(conversation_id, str):
+                raise ValueError(
+                    f"conversation_id must be non-empty string, got {type(conversation_id).__name__}"
+                )
+
+            key = f"conversations/{conversation_id}/data.json"
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
+            conversation_data = json.loads(response["Body"].read().decode("utf-8"))
+
+            logger.info(
+                f"Conversation loaded",
+                extra_data={
+                    "conversation_id": conversation_id,
+                    "data_size": len(json.dumps(conversation_data)),
+                },
+            )
+            return conversation_data
+
+        except Exception as e:
+            logger.warning(
+                f"Conversation not found or error loading: {str(e)}",
+                extra_data={"conversation_id": conversation_id},
+            )
+            return None
 
 
 class ChainOfThoughtReasoner:
@@ -482,7 +672,9 @@ Based on above reasoning, provide your answer:"""
                 if stripped and stripped[0] in ["-", "•", "*", "1", "2", "3", "4", "5"]:
                     steps.append(stripped)
 
-            logger.debug(f"Reasoning steps extracted", extra={"step_count": len(steps)})
+            logger.debug(
+                f"Reasoning steps extracted", extra_data={"step_count": len(steps)}
+            )
 
             return {"reasoning_steps": steps, "step_count": len(steps)}
         except Exception as e:

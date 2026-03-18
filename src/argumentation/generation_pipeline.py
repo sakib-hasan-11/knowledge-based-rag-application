@@ -455,7 +455,7 @@ class GenerationStatistics:
                 "average_complexity_score": self.average_complexity,
             }
 
-            logger.info(f"Generation statistics summary", extra=summary)
+            logger.info(f"Generation statistics summary", extra_data=summary)
             return summary
         except Exception as e:
             logger.error(f"Error getting statistics summary: {str(e)}", exc_info=True)

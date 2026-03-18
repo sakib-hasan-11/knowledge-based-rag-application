@@ -38,7 +38,9 @@ class EvaluationReporter:
         self.s3_client = s3_client
         self.bucket_name = bucket_name
 
-        logger.info(f"EvaluationReporter initialized", extra={"bucket": bucket_name})
+        logger.info(
+            f"EvaluationReporter initialized", extra_data={"bucket": bucket_name}
+        )
 
     def generate_report(
         self,

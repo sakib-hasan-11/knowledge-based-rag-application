@@ -187,7 +187,9 @@ class RAGEvaluator:
         Returns:
             List of evaluation results
         """
-        logger.info(f"Starting batch evaluation", extra={"query_count": len(queries)})
+        logger.info(
+            f"Starting batch evaluation", extra_data={"query_count": len(queries)}
+        )
 
         results = []
 
@@ -401,7 +403,7 @@ class RegressionTester:
         self.baseline_key = "evaluation/baseline_metrics.json"
         self.baseline_metrics = None
 
-        logger.info(f"RegressionTester initialized", extra={"bucket": bucket_name})
+        logger.info(f"RegressionTester initialized", extra_data={"bucket": bucket_name})
 
     def load_baseline(self) -> bool:
         """
