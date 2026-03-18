@@ -373,27 +373,31 @@ class TestHybridRetriever(unittest.TestCase):
 class TestMMRReranker(unittest.TestCase):
     """Test cases for Maximal Marginal Relevance reranking"""
 
-    def test_mmr_reranking_basic(self):
+    @patch("src.retrieval.during_retrieval.OpenAIEmbeddings")
+    def test_mmr_reranking_basic(self, mock_embeddings):
         """Test basic MMR reranking"""
         from src.retrieval.during_retrieval import MMRReranker
 
         reranker = MMRReranker()
         # Should rerank for maximum relevance and diversity
 
-    def test_mmr_diversity_factor(self):
+    @patch("src.retrieval.during_retrieval.OpenAIEmbeddings")
+    def test_mmr_diversity_factor(self, mock_embeddings):
         """Test MMR diversity factor"""
         from src.retrieval.during_retrieval import MMRReranker
 
         reranker = MMRReranker(diversity_factor=0.5)
         # Should balance relevance and diversity
 
-    def test_mmr_remove_redundancy(self):
+    @patch("src.retrieval.during_retrieval.OpenAIEmbeddings")
+    def test_mmr_remove_redundancy(self, mock_embeddings):
         """Test redundancy removal in MMR"""
         from src.retrieval.during_retrieval import MMRReranker
 
         # Should remove redundant documents
 
-    def test_mmr_single_result(self):
+    @patch("src.retrieval.during_retrieval.OpenAIEmbeddings")
+    def test_mmr_single_result(self, mock_embeddings):
         """Test MMR with single result"""
         from src.retrieval.during_retrieval import MMRReranker
 

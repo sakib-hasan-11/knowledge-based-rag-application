@@ -7,6 +7,7 @@ Handles retrieval operations with multiple reranking strategies:
 - Cross-encoder reranking for fine-tuning
 """
 
+import os
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -161,16 +162,54 @@ class MMRReranker:
 
     def __init__(
         self,
-        embeddings_model: OpenAIEmbeddings,
-        lambda_param: float = 0.5,
+        embeddings_model: Optional[OpenAIEmbeddings] = None,
+        diversity_factor: float = 0.5,
+        lambda_param: Optional[float] = None,
         logger_name: str = "MMRReranker",
     ):
-        """Initialize MMR reranker."""
-        self.logger = create_logger(logger_name)
-        self.embeddings_model = embeddings_model
-        self.lambda_param = lambda_param
+        """
+        Initialize MMR reranker.
 
-        self.logger.info("MMRReranker initialized", {"lambda": lambda_param})
+        Args:
+            embeddings_model: OpenAI embeddings model. If None, creates default model.
+            diversity_factor: Weight for diversity vs relevance (0.0-1.0). Default 0.5.
+            lambda_param: Deprecated. Use diversity_factor instead.
+            logger_name: Logger name for this instance.
+        """
+        self.logger = create_logger(logger_name)
+
+        # Validate API key before creating embeddings
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            self.logger.warning(
+                "OPENAI_API_KEY not set. MMRReranker will fail when used in production. "
+                "Set OPENAI_API_KEY environment variable before using this class."
+            )
+
+        # Initialize embeddings model if not provided
+        if embeddings_model is None:
+            try:
+                self.embeddings_model = OpenAIEmbeddings(model=config.EMBEDDING_MODEL)
+            except Exception as e:
+                self.logger.error(f"Failed to initialize OpenAIEmbeddings: {str(e)}")
+                raise
+        else:
+            self.embeddings_model = embeddings_model
+
+        # Support both diversity_factor and lambda_param for backwards compatibility
+        if lambda_param is not None:
+            self.diversity_factor = lambda_param
+        else:
+            self.diversity_factor = diversity_factor
+
+        if not 0.0 <= self.diversity_factor <= 1.0:
+            raise ValueError(
+                f"diversity_factor must be between 0.0 and 1.0, got {self.diversity_factor}"
+            )
+
+        self.logger.info(
+            "MMRReranker initialized", {"diversity_factor": self.diversity_factor}
+        )
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity."""
@@ -230,8 +269,8 @@ class MMRReranker:
                             diversity = 1.0 - max(selected_sims)
 
                     mmr_score = (
-                        self.lambda_param * relevance
-                        + (1 - self.lambda_param) * diversity
+                        self.diversity_factor * relevance
+                        + (1 - self.diversity_factor) * diversity
                     )
                     mmr_scores.append((mmr_score, doc))
 
