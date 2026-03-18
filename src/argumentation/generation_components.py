@@ -568,6 +568,72 @@ class ChainOfThoughtReasoner:
     EXPLANATION_KEYWORDS = ["explain", "why", "how does", "mechanism", "process"]
     HISTORICAL_KEYWORDS = ["trend", "change", "history", "evolution", "development"]
 
+    def __init__(self, logger_name: str = "ChainOfThoughtReasoner"):
+        """
+        Initialize ChainOfThoughtReasoner.
+
+        Args:
+            logger_name: Name for logger instance
+        """
+        self.logger_name = logger_name
+        logger.info(
+            f"ChainOfThoughtReasoner initialized",
+            extra_data={"logger_name": logger_name},
+        )
+
+    def generate_steps(self, query: str, context: str) -> Dict:
+        """
+        Generate chain-of-thought reasoning steps for a query.
+
+        Args:
+            query: User query
+            context: Retrieved context/documents
+
+        Returns:
+            Dict with reasoning steps and analysis
+        """
+        try:
+            # Analyze query complexity
+            complexity_analysis = self.analyze_query_complexity(query)
+
+            # Build CoT prompt
+            cot_prompt = self.build_cot_prompt(query, context)
+
+            # Generate basic reasoning structure
+            reasoning_steps = [
+                "Step 1: Extract Key Information from query and context",
+                "Step 2: Identify Relationships between concepts",
+                "Step 3: Synthesize logical chain of reasoning",
+                "Step 4: Validate all claims against provided context",
+            ]
+
+            logger.info(
+                f"Chain-of-thought steps generated",
+                extra_data={
+                    "query_length": len(query),
+                    "context_length": len(context),
+                    "complexity_score": complexity_analysis["complexity_score"],
+                    "step_count": len(reasoning_steps),
+                },
+            )
+
+            return {
+                "query": query,
+                "reasoning_steps": reasoning_steps,
+                "complexity_analysis": complexity_analysis,
+                "cot_prompt": cot_prompt,
+                "step_count": len(reasoning_steps),
+            }
+        except Exception as e:
+            logger.error(f"Error generating reasoning steps: {str(e)}", exc_info=True)
+            return {
+                "query": query,
+                "reasoning_steps": [],
+                "complexity_analysis": {"requires_cot": False},
+                "step_count": 0,
+                "error": str(e),
+            }
+
     @staticmethod
     def analyze_query_complexity(query: str) -> Dict:
         """
@@ -607,7 +673,7 @@ class ChainOfThoughtReasoner:
 
             logger.debug(
                 f"Query complexity analyzed",
-                extra={
+                extra_data={
                     "requires_cot": requires_cot,
                     "complexity_score": complexity_score,
                     "indicators": complexity_indicators,
