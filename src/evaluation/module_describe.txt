@@ -1,0 +1,29 @@
+__init__.py - Module metadata and exports
+
+evaluation_components.py (600+ lines)
+
+RAGEvaluator: Evaluates RAG quality on test queries with latency tracking
+RAGASMetricsEvaluator: Ground-truth-free metrics (faithfulness, answer relevancy, context precision, context recall)
+RegressionTester: Baseline comparison and regression detection with S3 persistence
+
+
+
+evaluation_reporter.py (400+ lines)
+
+EvaluationReporter: Comprehensive report generation with:
+Summary statistics (success rate, latency analysis)
+RAGAS metrics display
+Latency percentiles (mean, min, max, P95, P99)
+Regression analysis with improvement tracking
+Actionable recommendations based on metric scores
+S3 persistence (JSON & CSV formats)
+
+
+
+evaluation_pipeline.py (450+ lines)
+
+EvaluationPipeline: Main orchestrator with:
+run_complete_evaluation(): Full 6-step pipeline (RAG → RAGAS → Regression → Report → Baseline → S3)
+run_quick_evaluation(): Fast evaluation (RAG only, no regression)
+Optional LangSmith tracing integration
+EvaluationStatistics: Metrics aggregation across multiple runs
