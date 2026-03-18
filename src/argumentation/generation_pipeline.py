@@ -14,14 +14,14 @@ from typing import Dict, List, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from generation_components import (
+from data_ingestion.config import Config
+from data_ingestion.logging_config import create_logger
+
+from .generation_components import (
     ChainOfThoughtReasoner,
     ConversationMemoryManager,
     PromptTemplateBuilder,
 )
-
-from data_ingestion.config import Config
-from data_ingestion.logging_config import create_logger
 
 try:
     from langchain.chat_models import ChatOpenAI
@@ -53,6 +53,8 @@ class ArgumentationPipeline:
         model_name: str = "gpt-3.5-turbo",
         temperature: float = 0.3,
         max_tokens: int = 500,
+        enable_cot: bool = True,
+        enable_hallucination_check: bool = False,
     ):
         """
         Initialize argumentation pipeline.
@@ -64,6 +66,8 @@ class ArgumentationPipeline:
             model_name: LLM model name
             temperature: LLM temperature setting
             max_tokens: Max tokens in response
+            enable_cot: Whether to enable chain-of-thought reasoning by default
+            enable_hallucination_check: Whether to enable hallucination detection
         """
         self.llm_client = llm_client
         self.s3_client = s3_client
@@ -71,6 +75,8 @@ class ArgumentationPipeline:
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.enable_cot = enable_cot
+        self.enable_hallucination_check = enable_hallucination_check
 
         # Initialize components
         self.prompt_builder = PromptTemplateBuilder()
@@ -79,7 +85,7 @@ class ArgumentationPipeline:
 
         logger.info(
             f"ArgumentationPipeline initialized",
-            extra={
+            extra_data={
                 "model": model_name,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
@@ -90,9 +96,11 @@ class ArgumentationPipeline:
     def generate_response(
         self,
         query: str,
-        retrieved_documents: List[Dict],
+        retrieved_documents: List[Dict] = None,
+        context: str = None,
         session_id: str = None,
-        use_cot: bool = True,
+        conversation_id: str = None,
+        use_cot: bool = None,
         verbose: bool = False,
     ) -> Dict:
         """
@@ -101,19 +109,37 @@ class ArgumentationPipeline:
         Args:
             query: User query
             retrieved_documents: List of retrieved context documents
+            context: Alternative parameter - a string of context (for backward compatibility)
             session_id: Optional session ID to load previous context
-            use_cot: Whether to use chain-of-thought reasoning
+            conversation_id: Alias for session_id (for backward compatibility)
+            use_cot: Whether to use chain-of-thought reasoning (defaults to self.enable_cot if not provided)
             verbose: Whether to log detailed steps
 
         Returns:
             Dict with response, citations, and metadata
         """
+        # Handle backward compatibility: convert context string to retrieved_documents format
+        if context is not None and retrieved_documents is None:
+            retrieved_documents = [
+                {"page_content": context, "metadata": {"source": "provided_context"}}
+            ]
+        elif retrieved_documents is None:
+            retrieved_documents = []
+
+        # Use default enable_cot if use_cot not specified
+        if use_cot is None:
+            use_cot = self.enable_cot
+
+        # Support conversation_id as alias for session_id
+        if conversation_id is not None and session_id is None:
+            session_id = conversation_id
+
         start_time = time.time()
 
         try:
             logger.info(
                 f"Phase 10 - Generation started",
-                extra={
+                extra_data={
                     "query": query[:100],
                     "num_docs": len(retrieved_documents),
                     "use_cot": use_cot,
@@ -211,7 +237,7 @@ class ArgumentationPipeline:
 
             logger.info(
                 f"Phase 10 - Generation completed",
-                extra={
+                extra_data={
                     "response_length": len(response_text),
                     "citations_count": len(citations),
                     "execution_time": elapsed_time,
@@ -221,7 +247,7 @@ class ArgumentationPipeline:
             return result
 
         except Exception as e:
-            logger.error(f"Error in generate_response: {str(e)}", exc_info=True)
+            logger.error(f"Error in generate_response: {str(e)}")
             return {
                 "query": query,
                 "response": f"Error generating response: {str(e)}",
@@ -268,7 +294,7 @@ class ArgumentationPipeline:
             if verbose:
                 logger.debug(
                     f"Context formatted from {len(documents)} documents",
-                    extra={
+                    extra_data={
                         "context_length": len(context_str),
                         "doc_count": len(context_parts),
                     },
@@ -276,7 +302,7 @@ class ArgumentationPipeline:
 
             return context_str
         except Exception as e:
-            logger.error(f"Error formatting context: {str(e)}", exc_info=True)
+            logger.error(f"Error formatting context: {str(e)}")
             return "Error formatting context documents."
 
     def _call_llm(
@@ -312,7 +338,7 @@ class ArgumentationPipeline:
             if verbose:
                 logger.debug(
                     f"LLM response received",
-                    extra={
+                    extra_data={
                         "response_length": len(response),
                         "finish_reason": completion.choices[0].finish_reason,
                     },
@@ -320,7 +346,7 @@ class ArgumentationPipeline:
 
             return response
         except Exception as e:
-            logger.error(f"Error calling LLM: {str(e)}", exc_info=True)
+            logger.error(f"Error calling LLM: {str(e)}")
             return f"Error generating response: {str(e)}"
 
     def _extract_citations(self, response: str, documents: List[Dict]) -> List[Dict]:
@@ -364,7 +390,7 @@ class ArgumentationPipeline:
             self.memory_manager.save_to_s3()
             logger.info(f"Session summary updated")
         except Exception as e:
-            logger.error(f"Error updating session summary: {str(e)}", exc_info=True)
+            logger.error(f"Error updating session summary: {str(e)}")
 
     def get_session_memory(self) -> str:
         """
@@ -376,7 +402,7 @@ class ArgumentationPipeline:
         try:
             return self.memory_manager.get_memory_string()
         except Exception as e:
-            logger.error(f"Error getting session memory: {str(e)}", exc_info=True)
+            logger.error(f"Error getting session memory: {str(e)}")
             return ""
 
     def clear_session(self):
@@ -389,7 +415,7 @@ class ArgumentationPipeline:
                 f"Session cleared, new session created: {self.memory_manager.session_id}"
             )
         except Exception as e:
-            logger.error(f"Error clearing session: {str(e)}", exc_info=True)
+            logger.error(f"Error clearing session: {str(e)}")
 
 
 # Statistics collector for batch operations
@@ -458,5 +484,5 @@ class GenerationStatistics:
             logger.info(f"Generation statistics summary", extra_data=summary)
             return summary
         except Exception as e:
-            logger.error(f"Error getting statistics summary: {str(e)}", exc_info=True)
+            logger.error(f"Error getting statistics summary: {str(e)}")
             return {}
