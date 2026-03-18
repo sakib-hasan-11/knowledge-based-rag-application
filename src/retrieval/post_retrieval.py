@@ -303,13 +303,29 @@ class ConversationMemoryManager:
         self,
         s3_client=None,
         bucket_name: Optional[str] = None,
+        bucket: Optional[str] = None,
         max_window: int = 5,
         logger_name: str = "ConversationMemoryManager",
     ):
-        """Initialize memory manager."""
+        """
+        Initialize memory manager.
+
+        Args:
+            s3_client: Boto3 S3 client instance.
+            bucket_name: S3 bucket name. If not provided, uses config.S3_BUCKET_NAME.
+            bucket: Alias for bucket_name for convenience.
+            max_window: Maximum number of interactions to keep in buffer.
+            logger_name: Logger name for this instance.
+        """
         self.logger = create_logger(logger_name)
         self.s3_client = s3_client
-        self.bucket_name = bucket_name or config.S3_BUCKET_NAME
+
+        # Support both 'bucket' and 'bucket_name' parameters for flexibility
+        if bucket is not None:
+            self.bucket_name = bucket
+        else:
+            self.bucket_name = bucket_name or config.S3_BUCKET_NAME
+
         self.max_window = max_window
         self.session_id = str(uuid.uuid4())
         self.conversation_buffer = []
@@ -317,7 +333,11 @@ class ConversationMemoryManager:
 
         self.logger.info(
             "ConversationMemoryManager initialized",
-            {"session_id": self.session_id, "max_window": max_window},
+            {
+                "session_id": self.session_id,
+                "max_window": max_window,
+                "bucket": self.bucket_name,
+            },
         )
 
     def add_interaction(
