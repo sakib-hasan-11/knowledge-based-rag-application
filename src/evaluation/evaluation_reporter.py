@@ -89,6 +89,39 @@ class EvaluationReporter:
                 "report_name": report_name,
             }
 
+    def generate_summary(self, metrics: Dict) -> Dict:
+        """
+        Generate summary report from metrics.
+
+        Args:
+            metrics: Metrics dict with evaluation scores
+
+        Returns:
+            Summary report dict
+        """
+        try:
+            logger.info(
+                f"Generating summary report",
+                extra_data={"metric_keys": list(metrics.keys())},
+            )
+
+            summary = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "metrics": metrics,
+                "average_score": sum(
+                    v for v in metrics.values() if isinstance(v, (int, float))
+                )
+                / len([v for v in metrics.values() if isinstance(v, (int, float))])
+                if any(isinstance(v, (int, float)) for v in metrics.values())
+                else 0.0,
+            }
+
+            logger.info(f"Summary report generated successfully")
+            return summary
+        except Exception as e:
+            logger.error(f"Error generating summary: {str(e)}")
+            return {"error": str(e)}
+
     def _generate_summary(self, results: List[Dict], metrics: Dict) -> Dict:
         """
         Generate summary statistics.
@@ -285,23 +318,44 @@ class EvaluationReporter:
             logger.error(f"Error generating recommendations: {str(e)}")
             return ["⚠ Error generating recommendations"]
 
-    def save_report(self, report: Dict, format: str = "json") -> bool:
+    def save_report(
+        self, report_name_or_dict, report_data: Dict = None, format: str = "json"
+    ) -> bool:
         """
         Save report to S3.
 
+        Supports two calling signatures:
+        1. save_report(report_name: str, report_data: Dict) - new interface
+        2. save_report(report: Dict, format: str) - original interface
+
         Args:
-            report: Report dict to save
-            format: Format (json or csv)
+            report_name_or_dict: Report name (string) or report dict
+            report_data: Report dict (when first arg is a string) or format string (when first arg is dict)
+            format: Format (json or csv) - only used with dict first arg
 
         Returns:
             True if saved successfully, False otherwise
         """
         try:
+            # Handle two different calling signatures
+            if isinstance(report_name_or_dict, str) and isinstance(report_data, dict):
+                # New interface: save_report(report_name, report_data)
+                report = report_data.copy()
+                report["report_name"] = report_name_or_dict
+                actual_format = format
+            elif isinstance(report_name_or_dict, dict):
+                # Original interface: save_report(report_dict, format)
+                report = report_name_or_dict
+                actual_format = report_data if isinstance(report_data, str) else format
+            else:
+                logger.error("Invalid arguments to save_report")
+                return False
+
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             report_name = report.get("report_name", "evaluation")
-            filename = f"rag-reports/{report_name}_{timestamp}.{format}"
+            filename = f"rag-reports/{report_name}_{timestamp}.{actual_format}"
 
-            if format == "json":
+            if actual_format == "json":
                 body = json.dumps(report, indent=2, default=str)
                 content_type = "application/json"
             else:
@@ -328,7 +382,8 @@ class EvaluationReporter:
             )
 
             logger.info(
-                f"Report saved to S3", extra_data={"s3_key": filename, "format": format}
+                f"Report saved to S3",
+                extra_data={"s3_key": filename, "format": actual_format},
             )
             return True
         except Exception as e:
@@ -422,5 +477,3 @@ class EvaluationReporter:
 
         except Exception as e:
             logger.error(f"Error printing report: {str(e)}")
-
-

@@ -49,6 +49,8 @@ class EvaluationPipeline:
         retrieval_pipeline=None,
         generation_pipeline=None,
         enable_tracing: bool = False,
+        timeout: int = 60,
+        enable_regression_check: bool = False,
     ):
         """
         Initialize evaluation pipeline.
@@ -60,6 +62,8 @@ class EvaluationPipeline:
             retrieval_pipeline: Retrieval pipeline instance
             generation_pipeline: Generation pipeline instance
             enable_tracing: Whether to enable LangSmith tracing
+            timeout: Timeout for evaluation operations (default 60 seconds)
+            enable_regression_check: Whether to enable regression detection (default False)
         """
         self.llm_client = llm_client
         self.s3_client = s3_client
@@ -67,6 +71,8 @@ class EvaluationPipeline:
         self.retrieval_pipeline = retrieval_pipeline
         self.generation_pipeline = generation_pipeline
         self.enable_tracing = enable_tracing
+        self.timeout = timeout
+        self.enable_regression_check = enable_regression_check
 
         # Initialize components
         self.rag_evaluator = RAGEvaluator(
@@ -98,8 +104,101 @@ class EvaluationPipeline:
                 "has_retrieval": retrieval_pipeline is not None,
                 "has_generation": generation_pipeline is not None,
                 "tracing_enabled": self.langsmith_tracer is not None,
+                "timeout": timeout,
+                "regression_check_enabled": enable_regression_check,
             },
         )
+
+    def evaluate_sample(self, sample: Dict) -> Dict:
+        """
+        Evaluate a single sample.
+
+        Args:
+            sample: Sample dict with question, context, answer, and optional ground_truth
+
+        Returns:
+            Evaluation result dict with metrics
+        """
+        try:
+            start_time = time.time()
+            question = sample.get("question", "")
+            context = sample.get("context", [])
+            answer = sample.get("answer", "")
+            ground_truth = sample.get("ground_truth", None)
+
+            logger.info(
+                f"Evaluating single sample",
+                extra_data={
+                    "question_len": len(question),
+                    "context_len": len(context),
+                },
+            )
+
+            # Run RAGAS metrics evaluation
+            result = self.ragas_evaluator.compute_all_metrics(
+                question=question,
+                context="\\n".join(context) if isinstance(context, list) else context,
+                answer=answer,
+            )
+
+            # Add ground truth comparison if available
+            if ground_truth:
+                result["ground_truth"] = ground_truth
+                result["has_ground_truth"] = True
+            else:
+                result["has_ground_truth"] = False
+
+            result["execution_time"] = time.time() - start_time
+
+            logger.info(
+                f"Sample evaluation completed",
+                extra_data={"execution_time": result["execution_time"]},
+            )
+
+            return result
+        except Exception as e:
+            logger.error(f"Error evaluating sample: {str(e)}")
+            return {"error": str(e), "execution_time": time.time() - start_time}
+
+    def evaluate_batch(self, batch: List[Dict]) -> List[Dict]:
+        """
+        Evaluate a batch of samples.
+
+        Args:
+            batch: List of sample dicts
+
+        Returns:
+            List of evaluation results
+        """
+        try:
+            start_time = time.time()
+            logger.info(
+                f"Evaluating batch of {len(batch)} samples",
+                extra_data={"batch_size": len(batch)},
+            )
+
+            results = []
+            for i, sample in enumerate(batch):
+                if time.time() - start_time > self.timeout:
+                    logger.warning(f"Batch evaluation timeout after {i} samples")
+                    break
+
+                result = self.evaluate_sample(sample)
+                results.append(result)
+
+            elapsed = time.time() - start_time
+            logger.info(
+                f"Batch evaluation completed",
+                extra_data={
+                    "samples_evaluated": len(results),
+                    "execution_time": elapsed,
+                },
+            )
+
+            return results
+        except Exception as e:
+            logger.error(f"Error evaluating batch: {str(e)}")
+            return [{"error": str(e)}]
 
     def run_complete_evaluation(
         self,
