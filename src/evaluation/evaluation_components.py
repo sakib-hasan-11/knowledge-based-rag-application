@@ -821,54 +821,69 @@ class RegressionTester:
     flagging any significant metric regressions.
     """
 
-    def __init__(self, s3_client, bucket_name: str):
+    def __init__(self, s3_client, bucket_name: str, regression_threshold: float = 0.05):
         """
         Initialize regression tester.
 
         Args:
             s3_client: boto3 S3 client
             bucket_name: S3 bucket for storing baselines
+            regression_threshold: Threshold for detecting regression (default 0.05 = 5%)
         """
         self.s3_client = s3_client
         self.bucket_name = bucket_name
+        self.regression_threshold = regression_threshold
         self.baseline_key = "evaluation/baseline_metrics.json"
         self.baseline_metrics = None
 
-        logger.info(f"RegressionTester initialized", extra_data={"bucket": bucket_name})
+        logger.info(
+            f"RegressionTester initialized",
+            extra_data={"bucket": bucket_name, "threshold": regression_threshold},
+        )
 
-    def load_baseline(self) -> bool:
+    def load_baseline(self, baseline_name: str) -> Dict:
         """
         Load baseline metrics from S3.
 
+        Args:
+            baseline_name: Name of baseline to load
+
         Returns:
-            True if loaded successfully, False otherwise
+            Dict with baseline metrics, or empty dict if not found
         """
         try:
+            baseline_key = f"evaluation/{baseline_name}.json"
             response = self.s3_client.get_object(
-                Bucket=self.bucket_name, Key=self.baseline_key
+                Bucket=self.bucket_name, Key=baseline_key
             )
-            self.baseline_metrics = json.loads(response["Body"].read().decode("utf-8"))
+            baseline_data = json.loads(response["Body"].read().decode("utf-8"))
+            self.baseline_metrics = baseline_data
 
             logger.info(
                 f"Baseline metrics loaded from S3",
-                extra_data={"keys": list(self.baseline_metrics.keys())},
+                extra_data={
+                    "baseline_name": baseline_name,
+                    "keys": list(baseline_data.keys()),
+                },
             )
-            return True
+            return baseline_data
         except Exception as e:
             logger.warning(f"Could not load baseline: {str(e)}")
-            return False
+            return {}
 
-    def save_baseline(self, metrics: Dict) -> bool:
+    def save_baseline(self, baseline_name: str, metrics: Dict) -> bool:
         """
         Save metrics as new baseline.
 
         Args:
+            baseline_name: Name for this baseline
             metrics: Metrics dict to save as baseline
 
         Returns:
             True if saved successfully, False otherwise
         """
         try:
+            baseline_key = f"evaluation/{baseline_name}.json"
             baseline_data = {
                 "timestamp": datetime.utcnow().isoformat(),
                 "metrics": metrics,
@@ -876,13 +891,16 @@ class RegressionTester:
 
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
-                Key=self.baseline_key,
+                Key=baseline_key,
                 Body=json.dumps(baseline_data, indent=2),
                 ContentType="application/json",
             )
 
             self.baseline_metrics = metrics
-            logger.info(f"Baseline metrics saved to S3")
+            logger.info(
+                f"Baseline metrics saved to S3",
+                extra_data={"baseline_name": baseline_name},
+            )
             return True
         except Exception as e:
             logger.error(f"Error saving baseline: {str(e)}")
@@ -1000,3 +1018,167 @@ class RegressionTester:
         except Exception as e:
             logger.error(f"Error detecting regressions: {str(e)}")
             return {"error": str(e), "regressions": [], "improvements": []}
+
+    def compare_metrics(self, current: Dict, baseline: Dict) -> Dict:
+        """
+        Compare current metrics against baseline metrics.
+
+        Args:
+            current: Current metrics dict
+            baseline: Baseline metrics dict
+
+        Returns:
+            Dict with metric comparisons and analysis
+        """
+        try:
+            comparison = {
+                "current": current,
+                "baseline": baseline,
+                "differences": {},
+                "percent_changes": {},
+                "regressions": [],
+                "improvements": [],
+            }
+
+            for metric_name, baseline_value in baseline.items():
+                if not isinstance(baseline_value, (int, float)):
+                    continue
+
+                current_value = current.get(metric_name)
+                if current_value is None or not isinstance(current_value, (int, float)):
+                    continue
+
+                difference = current_value - baseline_value
+                percent_change = (
+                    (difference / baseline_value * 100) if baseline_value != 0 else 0
+                )
+
+                comparison["differences"][metric_name] = difference
+                comparison["percent_changes"][metric_name] = percent_change
+
+                # For quality metrics (higher is better)
+                if (
+                    "latency" not in metric_name.lower()
+                    and "time" not in metric_name.lower()
+                ):
+                    if (
+                        percent_change < -self.regression_threshold * 100
+                    ):  # Negative change = regression
+                        comparison["regressions"].append(
+                            {
+                                "metric": metric_name,
+                                "baseline": baseline_value,
+                                "current": current_value,
+                                "percent_change": percent_change,
+                            }
+                        )
+                    elif percent_change > 0:
+                        comparison["improvements"].append(
+                            {
+                                "metric": metric_name,
+                                "baseline": baseline_value,
+                                "current": current_value,
+                                "percent_change": percent_change,
+                            }
+                        )
+                # For latency metrics (lower is better)
+                else:
+                    if (
+                        percent_change > self.regression_threshold * 100
+                    ):  # Positive change = regression
+                        comparison["regressions"].append(
+                            {
+                                "metric": metric_name,
+                                "baseline": baseline_value,
+                                "current": current_value,
+                                "percent_change": percent_change,
+                            }
+                        )
+                    elif percent_change < 0:
+                        comparison["improvements"].append(
+                            {
+                                "metric": metric_name,
+                                "baseline": baseline_value,
+                                "current": current_value,
+                                "percent_change": percent_change,
+                            }
+                        )
+
+            logger.info(
+                f"Metrics comparison completed",
+                extra_data={
+                    "regressions": len(comparison["regressions"]),
+                    "improvements": len(comparison["improvements"]),
+                },
+            )
+            return comparison
+        except Exception as e:
+            logger.error(f"Error comparing metrics: {str(e)}")
+            return {"error": str(e)}
+
+    def is_regression(self, current: Dict, baseline: Dict) -> bool:
+        """
+        Detect if current metrics show regression compared to baseline.
+
+        Args:
+            current: Current metrics dict
+            baseline: Baseline metrics dict
+
+        Returns:
+            True if regression detected, False otherwise
+        """
+        try:
+            for metric_name, baseline_value in baseline.items():
+                if not isinstance(baseline_value, (int, float)):
+                    continue
+
+                current_value = current.get(metric_name)
+                if current_value is None or not isinstance(current_value, (int, float)):
+                    continue
+
+                percent_change = (
+                    abs((current_value - baseline_value) / baseline_value)
+                    if baseline_value != 0
+                    else 0
+                )
+
+                # For quality metrics (higher is better), check if decreased beyond threshold
+                if (
+                    "latency" not in metric_name.lower()
+                    and "time" not in metric_name.lower()
+                ):
+                    if (
+                        current_value < baseline_value
+                        and percent_change > self.regression_threshold
+                    ):
+                        logger.warning(
+                            f"Regression detected in {metric_name}",
+                            extra_data={
+                                "metric": metric_name,
+                                "baseline": baseline_value,
+                                "current": current_value,
+                                "percent_change": percent_change,
+                            },
+                        )
+                        return True
+                # For latency metrics (lower is better), check if increased beyond threshold
+                else:
+                    if (
+                        current_value > baseline_value
+                        and percent_change > self.regression_threshold
+                    ):
+                        logger.warning(
+                            f"Regression detected in {metric_name}",
+                            extra_data={
+                                "metric": metric_name,
+                                "baseline": baseline_value,
+                                "current": current_value,
+                                "percent_change": percent_change,
+                            },
+                        )
+                        return True
+
+            return False
+        except Exception as e:
+            logger.error(f"Error checking regression: {str(e)}")
+            return False

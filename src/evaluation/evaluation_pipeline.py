@@ -14,11 +14,11 @@ from typing import Dict, List, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from evaluation_components import RAGASMetricsEvaluator, RAGEvaluator, RegressionTester
-from evaluation_reporter import EvaluationReporter
-
 from data_ingestion.config import Config
 from src.data_ingestion.logging_config import create_logger
+
+from .evaluation_components import RAGASMetricsEvaluator, RAGEvaluator, RegressionTester
+from .evaluation_reporter import EvaluationReporter
 
 logger = create_logger(__name__)
 
@@ -379,5 +379,3 @@ class EvaluationStatistics:
         except Exception as e:
             logger.error(f"Error getting statistics summary: {str(e)}")
             return {}
-
-
