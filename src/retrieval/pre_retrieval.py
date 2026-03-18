@@ -33,6 +33,12 @@ class QueryRewriter:
         self.model_name = model_name
         self.temperature = temperature
 
+        # Validate API key is available
+        if not config.OPENAI_API_KEY:
+            raise ValueError(
+                "OPENAI_API_KEY not configured. Set OPENAI_API_KEY in .env file or environment variables."
+            )
+
         try:
             self.llm = ChatOpenAI(
                 model_name=model_name,
@@ -52,6 +58,11 @@ Rewritten Query:""",
             )
 
             self.logger.info("QueryRewriter initialized", {"model": model_name})
+        except ValueError as e:
+            self.logger.error(
+                f"Configuration error initializing QueryRewriter: {str(e)}"
+            )
+            raise
         except Exception as e:
             self.logger.error(f"Error initializing QueryRewriter: {str(e)}")
             raise
@@ -109,6 +120,12 @@ class MultiQueryGenerator:
         self.model_name = model_name
         self.num_queries = num_queries
         self.temperature = temperature
+
+        # Validate API key is available
+        if not config.OPENAI_API_KEY:
+            raise ValueError(
+                "OPENAI_API_KEY not configured. Set OPENAI_API_KEY in .env file or environment variables."
+            )
 
         try:
             self.llm = ChatOpenAI(
@@ -220,6 +237,12 @@ class HyDEGenerator:
         self.logger = create_logger(logger_name)
         self.llm_model = llm_model
 
+        # Validate API keys are available
+        if not config.OPENAI_API_KEY:
+            raise ValueError(
+                "OPENAI_API_KEY not configured. Set OPENAI_API_KEY in .env file or environment variables."
+            )
+
         try:
             self.llm = ChatOpenAI(
                 model_name=llm_model,
@@ -243,6 +266,11 @@ Hypothetical Document:""",
             )
 
             self.logger.info("HyDEGenerator initialized", {"model": llm_model})
+        except ValueError as e:
+            self.logger.error(
+                f"Configuration error initializing HyDEGenerator: {str(e)}"
+            )
+            raise
         except Exception as e:
             self.logger.error(f"Error initializing HyDEGenerator: {str(e)}")
             raise
@@ -350,6 +378,12 @@ class DomainRouter:
     ):
         """Initialize domain router."""
         self.logger = create_logger(logger_name)
+
+        # Validate API key is available
+        if not config.OPENAI_API_KEY:
+            raise ValueError(
+                "OPENAI_API_KEY not configured. Set OPENAI_API_KEY in .env file or environment variables."
+            )
 
         try:
             self.llm = ChatOpenAI(

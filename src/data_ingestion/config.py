@@ -57,7 +57,14 @@ class Config:
         # ============================================================================
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
         self.EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-        self.EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", 1536))
+
+        # Safe type conversion with error handling
+        try:
+            self.EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "1536"))
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"Invalid EMBEDDING_DIMENSION: must be an integer, got '{os.getenv('EMBEDDING_DIMENSION')}'"
+            )
 
         # ============================================================================
         # Pinecone Configuration
@@ -73,11 +80,50 @@ class Config:
         # ============================================================================
         # Pipeline Configuration
         # ============================================================================
-        self.CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 500))
-        self.CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
-        self.SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", 0.85))
-        self.BATCH_SIZE = int(os.getenv("BATCH_SIZE", 100))
-        self.UPSERT_BATCH_SIZE = int(os.getenv("UPSERT_BATCH_SIZE", 100))
+        try:
+            self.CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
+            if self.CHUNK_SIZE <= 0 or self.CHUNK_SIZE > 10000:
+                raise ValueError(
+                    f"CHUNK_SIZE must be between 1 and 10000, got {self.CHUNK_SIZE}"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid CHUNK_SIZE: {str(e)}")
+
+        try:
+            self.CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
+            if self.CHUNK_OVERLAP < 0 or self.CHUNK_OVERLAP >= self.CHUNK_SIZE:
+                raise ValueError(
+                    f"CHUNK_OVERLAP must be between 0 and CHUNK_SIZE-1, got {self.CHUNK_OVERLAP}"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid CHUNK_OVERLAP: {str(e)}")
+
+        try:
+            self.SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.85"))
+            if not (0.0 <= self.SIMILARITY_THRESHOLD <= 1.0):
+                raise ValueError(
+                    f"SIMILARITY_THRESHOLD must be between 0.0 and 1.0, got {self.SIMILARITY_THRESHOLD}"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid SIMILARITY_THRESHOLD: {str(e)}")
+
+        try:
+            self.BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
+            if self.BATCH_SIZE <= 0 or self.BATCH_SIZE > 10000:
+                raise ValueError(
+                    f"BATCH_SIZE must be between 1 and 10000, got {self.BATCH_SIZE}"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid BATCH_SIZE: {str(e)}")
+
+        try:
+            self.UPSERT_BATCH_SIZE = int(os.getenv("UPSERT_BATCH_SIZE", "100"))
+            if self.UPSERT_BATCH_SIZE <= 0 or self.UPSERT_BATCH_SIZE > 10000:
+                raise ValueError(
+                    f"UPSERT_BATCH_SIZE must be between 1 and 10000, got {self.UPSERT_BATCH_SIZE}"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid UPSERT_BATCH_SIZE: {str(e)}")
 
         # ============================================================================
         # Output Configuration
@@ -107,20 +153,59 @@ class Config:
         Validate required configuration parameters.
 
         Returns:
-            True if all required configs are present, False otherwise
+            True if all required configs are present and valid, False otherwise
         """
-        required_configs = [
-            ("OPENAI_API_KEY", self.OPENAI_API_KEY),
-            ("PINECONE_API_KEY", self.PINECONE_API_KEY),
-        ]
+        issues = []
 
-        missing = []
-        for config_name, config_value in required_configs:
-            if not config_value:
-                missing.append(config_name)
+        # Validate AWS Configuration (required for all stages)
+        if not self.AWS_ACCESS_KEY_ID:
+            issues.append("AWS_ACCESS_KEY_ID is required but not set")
+        if not self.AWS_SECRET_ACCESS_KEY:
+            issues.append("AWS_SECRET_ACCESS_KEY is required but not set")
+        if not self.S3_BUCKET_NAME:
+            issues.append("S3_BUCKET_NAME is required but not set")
 
-        if missing:
-            print(f"⚠ Missing required configuration: {', '.join(missing)}")
+        # Validate OpenAI Configuration (required for Stage 2+)
+        if not self.OPENAI_API_KEY:
+            issues.append(
+                "OPENAI_API_KEY is required but not set (needed for retrieval and argumentation stages)"
+            )
+
+        # Validate Pinecone Configuration (required for Stage 2+)
+        if not self.PINECONE_API_KEY:
+            issues.append(
+                "PINECONE_API_KEY is required but not set (needed for vector database operations)"
+            )
+        if not self.PINECONE_HOST:
+            issues.append(
+                "PINECONE_HOST is required but not set (needed for vector database operations)"
+            )
+
+        # Validate numeric configurations
+        if self.CHUNK_SIZE <= 0 or self.CHUNK_SIZE > 10000:
+            issues.append(
+                f"CHUNK_SIZE must be between 1 and 10000, got {self.CHUNK_SIZE}"
+            )
+        if self.CHUNK_OVERLAP < 0 or self.CHUNK_OVERLAP >= self.CHUNK_SIZE:
+            issues.append(
+                f"CHUNK_OVERLAP must be between 0 and CHUNK_SIZE-1, got {self.CHUNK_OVERLAP}"
+            )
+        if not (0.0 <= self.SIMILARITY_THRESHOLD <= 1.0):
+            issues.append(
+                f"SIMILARITY_THRESHOLD must be between 0.0 and 1.0, got {self.SIMILARITY_THRESHOLD}"
+            )
+        if self.BATCH_SIZE <= 0 or self.BATCH_SIZE > 10000:
+            issues.append(
+                f"BATCH_SIZE must be between 1 and 10000, got {self.BATCH_SIZE}"
+            )
+        if self.UPSERT_BATCH_SIZE <= 0 or self.UPSERT_BATCH_SIZE > 10000:
+            issues.append(
+                f"UPSERT_BATCH_SIZE must be between 1 and 10000, got {self.UPSERT_BATCH_SIZE}"
+            )
+
+        if issues:
+            for issue in issues:
+                print(f"[ERROR] {issue}")
             return False
 
         return True

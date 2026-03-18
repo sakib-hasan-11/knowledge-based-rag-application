@@ -101,6 +101,12 @@ class ContextualCompressor:
         self.logger = create_logger(logger_name)
         self.compression_ratio = compression_ratio
 
+        # Validate API key is available
+        if not config.OPENAI_API_KEY:
+            raise ValueError(
+                "OPENAI_API_KEY not configured. Set OPENAI_API_KEY in .env file or environment variables."
+            )
+
         try:
             self.llm = ChatOpenAI(
                 model_name=llm_model,

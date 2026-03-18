@@ -58,21 +58,25 @@ def setup_env():
     """
     Session-scoped fixture that runs once before all tests.
 
-    Ensures environment variables are properly loaded and
-    validates that configuration can be initialized.
+    Ensures environment variables are properly loaded.
+    Note: Stage 1 (data_ingestion) only needs AWS credentials.
+    Stage 2+ (retrieval, argumentation) need OpenAI and Pinecone keys.
     """
-    # Verify .env is loaded
-    assert os.getenv("OPENAI_API_KEY"), "OPENAI_API_KEY not set in environment"
-    assert os.getenv("PINECONE_API_KEY"), "PINECONE_API_KEY not set in environment"
+    # Verify AWS credentials are loaded (needed for all stages)
+    assert os.getenv("AWS_ACCESS_KEY_ID"), "AWS_ACCESS_KEY_ID not set in environment"
+    assert os.getenv("AWS_SECRET_ACCESS_KEY"), (
+        "AWS_SECRET_ACCESS_KEY not set in environment"
+    )
 
     # Import config after environment is set up
     from src.data_ingestion.config import config
 
-    # Validate configuration
-    if not config.validate():
-        raise RuntimeError(
-            "Configuration validation failed - required variables missing"
-        )
+    # Just log warnings if OpenAI/Pinecone keys are missing - don't fail yet
+    # Individual tests will use these and fail appropriately if needed
+    if not config.OPENAI_API_KEY:
+        print("\n[WARN] OPENAI_API_KEY not set - Stage 2+ tests may fail")
+    if not config.PINECONE_API_KEY:
+        print("\n[WARN] PINECONE_API_KEY not set - Stage 2+ tests may fail")
 
     print(f"\n[OK] Configuration initialized successfully")
 
