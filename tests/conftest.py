@@ -23,17 +23,32 @@ def pytest_configure(config):
     """
     pytest hook that runs before test collection.
 
-    Loads .env file to ensure environment variables are available
-    to all tests.
+    Loads environment variables from:
+    1. ENV_FILE environment variable (for GitHub Actions CI)
+    2. .env file in project root (for local development)
+    3. System environment variables (for containers/Docker)
     """
-    # Load .env file from project root
-    env_path = project_root / ".env"
+    # Check if ENV_FILE is set (GitHub Actions passes this)
+    env_file = os.getenv("ENV_FILE")
 
-    if env_path.exists():
-        load_dotenv(env_path, override=True)
-        print(f"\n[OK] Loaded environment variables from {env_path}")
+    if env_file:
+        env_path = Path(env_file)
+        if env_path.exists():
+            load_dotenv(env_path, override=True)
+            print(f"\n[OK] Loaded environment variables from {env_path}")
+        else:
+            print(f"\n[WARN] ENV_FILE path not found: {env_path}")
     else:
-        print(f"\n[WARN] .env file not found at {env_path}")
+        # Try to load .env file from project root (for local development)
+        env_path = project_root / ".env"
+        if env_path.exists():
+            load_dotenv(env_path, override=True)
+            print(f"\n[OK] Loaded environment variables from {env_path}")
+        else:
+            print(f"\n[INFO] No .env file found at {env_path}")
+            print(
+                f"       Relying on system environment variables (GitHub secrets, etc.)"
+            )
 
     # Verify critical environment variables are loaded
     required_vars = ["OPENAI_API_KEY", "PINECONE_API_KEY"]
@@ -59,24 +74,38 @@ def setup_env():
     Session-scoped fixture that runs once before all tests.
 
     Ensures environment variables are properly loaded.
-    Note: Stage 1 (data_ingestion) only needs AWS credentials.
+    Works in multiple environments:
+    - Local development: Uses .env file
+    - GitHub Actions CI: Uses GitHub secrets injected as env vars
+    - Docker/containers: Uses env var injection
+
+    Note: Stage 1 (data_ingestion) tests use mocks and don't need real credentials.
     Stage 2+ (retrieval, argumentation) need OpenAI and Pinecone keys.
     """
-    # Verify AWS credentials are loaded (needed for all stages)
-    assert os.getenv("AWS_ACCESS_KEY_ID"), "AWS_ACCESS_KEY_ID not set in environment"
-    assert os.getenv("AWS_SECRET_ACCESS_KEY"), (
-        "AWS_SECRET_ACCESS_KEY not set in environment"
-    )
-
     # Import config after environment is set up
     from src.data_ingestion.config import config
 
-    # Just log warnings if OpenAI/Pinecone keys are missing - don't fail yet
+    # Check if we have AWS credentials (they're optional for mocked tests)
+    aws_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+    if not aws_key_id or not aws_secret:
+        print(
+            "\n[INFO] AWS credentials not set in environment."
+            "\n       - For local testing with mocks: This is OK (tests use MagicMock)"
+            "\n       - For real S3 operations: Add AWS keys to .env file or set env vars"
+        )
+    else:
+        print("\n[OK] AWS credentials detected in environment")
+
+    # Log warnings if OpenAI/Pinecone keys are missing
     # Individual tests will use these and fail appropriately if needed
     if not config.OPENAI_API_KEY:
-        print("\n[WARN] OPENAI_API_KEY not set - Stage 2+ tests may fail")
+        print("\n[INFO] OPENAI_API_KEY not set - Stage 2+ tests may fail if not mocked")
     if not config.PINECONE_API_KEY:
-        print("\n[WARN] PINECONE_API_KEY not set - Stage 2+ tests may fail")
+        print(
+            "\n[INFO] PINECONE_API_KEY not set - Stage 2+ tests may fail if not mocked"
+        )
 
     print(f"\n[OK] Configuration initialized successfully")
 

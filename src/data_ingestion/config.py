@@ -148,40 +148,21 @@ class Config:
             "CLOUDWATCH_LOG_STREAM", "data-ingestion"
         )
 
-    def validate(self) -> bool:
+    def validate(self, strict: bool = False) -> bool:
         """
         Validate required configuration parameters.
 
+        Args:
+            strict: If True, requires all production credentials.
+                   If False (default), only validates format/bounds but allows missing credentials
+                   (suitable for testing with mocks).
+
         Returns:
-            True if all required configs are present and valid, False otherwise
+            True if configuration is valid, False otherwise
         """
         issues = []
 
-        # Validate AWS Configuration (required for all stages)
-        if not self.AWS_ACCESS_KEY_ID:
-            issues.append("AWS_ACCESS_KEY_ID is required but not set")
-        if not self.AWS_SECRET_ACCESS_KEY:
-            issues.append("AWS_SECRET_ACCESS_KEY is required but not set")
-        if not self.S3_BUCKET_NAME:
-            issues.append("S3_BUCKET_NAME is required but not set")
-
-        # Validate OpenAI Configuration (required for Stage 2+)
-        if not self.OPENAI_API_KEY:
-            issues.append(
-                "OPENAI_API_KEY is required but not set (needed for retrieval and argumentation stages)"
-            )
-
-        # Validate Pinecone Configuration (required for Stage 2+)
-        if not self.PINECONE_API_KEY:
-            issues.append(
-                "PINECONE_API_KEY is required but not set (needed for vector database operations)"
-            )
-        if not self.PINECONE_HOST:
-            issues.append(
-                "PINECONE_HOST is required but not set (needed for vector database operations)"
-            )
-
-        # Validate numeric configurations
+        # Always validate numeric parameters (even if credentials missing)
         if self.CHUNK_SIZE <= 0 or self.CHUNK_SIZE > 10000:
             issues.append(
                 f"CHUNK_SIZE must be between 1 and 10000, got {self.CHUNK_SIZE}"
@@ -202,6 +183,32 @@ class Config:
             issues.append(
                 f"UPSERT_BATCH_SIZE must be between 1 and 10000, got {self.UPSERT_BATCH_SIZE}"
             )
+
+        # Only in strict mode (production), require credentials
+        if strict:
+            # Validate AWS Configuration (required for production)
+            if not self.AWS_ACCESS_KEY_ID:
+                issues.append("AWS_ACCESS_KEY_ID is required but not set")
+            if not self.AWS_SECRET_ACCESS_KEY:
+                issues.append("AWS_SECRET_ACCESS_KEY is required but not set")
+            if not self.S3_BUCKET_NAME:
+                issues.append("S3_BUCKET_NAME is required but not set")
+
+            # Validate OpenAI Configuration (required for Stage 2+)
+            if not self.OPENAI_API_KEY:
+                issues.append(
+                    "OPENAI_API_KEY is required but not set (needed for retrieval and argumentation stages)"
+                )
+
+            # Validate Pinecone Configuration (required for Stage 2+)
+            if not self.PINECONE_API_KEY:
+                issues.append(
+                    "PINECONE_API_KEY is required but not set (needed for vector database operations)"
+                )
+            if not self.PINECONE_HOST:
+                issues.append(
+                    "PINECONE_HOST is required but not set (needed for vector database operations)"
+                )
 
         if issues:
             for issue in issues:
