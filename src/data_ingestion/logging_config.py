@@ -11,7 +11,14 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-from pythonjsonlogger import jsonlogger
+# Try to import pythonjsonlogger, fall back to standard formatting if not available
+try:
+    from pythonjsonlogger import jsonlogger
+
+    HAS_JSON_LOGGER = True
+except ImportError:
+    HAS_JSON_LOGGER = False
+    jsonlogger = None
 
 
 class CloudWatchFormatter(logging.Formatter):
@@ -74,15 +81,19 @@ class PipelineLogger:
         console_handler.setLevel(getattr(logging, level))
 
         # Set formatter
-        if log_format == "json":
+        if log_format == "json" and HAS_JSON_LOGGER:
             formatter = jsonlogger.JsonFormatter(
                 "%(timestamp)s %(level)s %(name)s %(message)s"
             )
         else:
-            formatter = logging.Formatter(
-                "[%(asctime)s] %(levelname)s [%(name)s:%(funcName)s:%(lineno)d] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
+            # Use CloudWatchFormatter for JSON or standard Formatter for plain text
+            if log_format == "json" and not HAS_JSON_LOGGER:
+                formatter = CloudWatchFormatter()
+            else:
+                formatter = logging.Formatter(
+                    "[%(asctime)s] %(levelname)s [%(name)s:%(funcName)s:%(lineno)d] %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                )
 
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)

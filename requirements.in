@@ -12,5 +12,24 @@ tiktoken
 fastapi
 uvicorn
 streamlit
-ipykernel
 
+# Optional: JSON logging (can also use built-in CloudWatch formatter)
+# pythonjsonlogger
+
+# Required for HTML parsing
+beautifulsoup4
+
+# Required for sparse vector generation (BM25)
+rank-bm25
+
+# Required for testing
+pytest
+pytest-cov
+pytest-xdist
+pytest-timeout
+pytest-asyncio
+
+# Required for evaluation metrics
+ragas
+
+python-json-logger

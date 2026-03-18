@@ -81,6 +81,24 @@ Rather than testing generic production cases, all test suites are tailored to va
 - **Stage 3** requires Stages 1 & 2 to pass (end-to-end tests)
 - **Code Quality** runs in parallel after all modules complete
 
+### Key Library Versions
+
+All dependencies are pinned to specific versions in `requirements.txt` for Python 3.11.14:
+
+| Library | Version | Purpose |
+|---------|---------|---------|
+| langchain | 0.3.27 | LLM orchestration |
+| langchain-core | 0.3.83 | Core abstractions |
+| langchain-community | 0.3.31 | Community integrations |
+| langchain-openai | 0.3.35 | OpenAI adapter |
+| openai | 2.28.0 | OpenAI API client |
+| pinecone | 8.1.0 | Vector database |
+| beautifulsoup4 | 4.14.3 | HTML parsing |
+| rank-bm25 | 0.2.2 | Sparse vector generation |
+| pytest | 9.0.2 | Test framework |
+| python-json-logger | 4.0.0 | JSON logging |
+| ragas | Latest | Evaluation metrics |
+
 ---
 
 ## Stage 1: Data Ingestion Module Tests
@@ -855,13 +873,11 @@ LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }}
 ### Prerequisites
 
 ```bash
-# Python 3.11+
+# Python 3.11.14
 python --version
 
-# Install dependencies
+# Install dependencies (all pinned versions from requirements.txt)
 pip install -r requirements.txt
-pip install pytest pytest-cov pytest-xdist pytest-timeout
-pip install langsmith ragas
 ```
 
 ### Setup Local Environment
@@ -872,7 +888,7 @@ cp .env.test .env.local
 
 # Add your credentials
 nano .env.local
-# Edit: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
+# Edit: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST, LANGSMITH_API_KEY
 
 # Load environment
 export $(cat .env.local | xargs)
