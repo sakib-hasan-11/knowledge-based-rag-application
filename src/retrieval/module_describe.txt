@@ -1,0 +1,32 @@
+Modules Created (Production-Ready)
+1. pre_retrieval.py (Phase 7) - Query Optimization & Routing
+
+QueryRewriter: Improves query clarity using LLM (gpt-4-turbo)
+MultiQueryGenerator: Creates 3-5 query variations for comprehensive search
+HyDEGenerator: Generates hypothetical documents → embeds them for better semantic matching
+DomainRouter: Classifies queries into (finance/operations/risk) + routes retrieval strategy
+
+
+2. during_retrieval.py (Phase 8) - Hybrid Search & Reranking
+
+HybridRetriever: Combines dense vectors (OpenAI) + sparse vectors (BM25) with alpha-weighting
+MMRReranker: Maximal Marginal Relevance for removing redundancy & ensuring diversity
+CrossEncoderReranker: BGE cross-encoder for fine-tuned ranking
+
+
+3. post_retrieval.py (Phase 9) - Response Generation & Memory
+
+TokenCounter: Manages token budgets using tiktoken
+ContextualCompressor: LLM-based extraction of query-relevant segments
+PromptTemplateBuilder: Anti-hallucination prompts with system constraints
+ConversationMemoryManager: Conversation history with S3 persistence
+ChainOfThoughtReasoner: Step-by-step reasoning for complex queries
+
+
+4. retrieval_pipeline.py - Main Orchestrator
+
+RetrievalPipeline: Choreographs all 3 phases seamlessly
+run_phase_7_pre_retrieval() - Query optimization
+run_phase_8_during_retrieval() - Multi-strategy retrieval
+run_phase_9_post_retrieval() - Response prep & memory management
+run_complete_pipeline() - Executes all phases with full error recovery

@@ -1,0 +1,86 @@
+Modules Created (Production-Ready)
+
+
+
+1. config.py - Configuration Management
+
+Loads all environment variables from .env
+Manages AWS, S3, OpenAI, Pinecone, and pipeline settings
+Includes configuration validation
+
+
+
+2. logging_config.py - CloudWatch-Compatible Logging
+
+JSON and plain text log format support
+CloudWatch handler integration via watchtower
+Custom logging wrapper with extra data support
+
+
+
+
+3. document_loader.py (Phase 2.5) - S3 Document Loader
+
+S3 bucket connection with error handling
+Local file loading support for testing
+Metadata extraction from file paths
+Comprehensive error recovery
+
+
+
+4. document_parser.py (Phase 2.4, 2.6) - HTML Parser & Ingestion Pipeline
+
+HTML parsing with section extraction (Item 1, 1A, 7, 8)
+Document metadata creation (DocumentMetadata dataclass)
+Batch document processing
+Save extracted documents to JSON/JSONL
+Full error handling for each section
+
+
+
+5. text_chunker.py (Phase 3) - Semantic Text Chunking
+
+RecursiveCharacterTextSplitter with configurable chunk size
+Enhanced metadata for tracking chunks
+Chunk statistics calculation
+Graceful error handling with partial results
+
+
+
+6. embeddings_generator.py (Phase 4) - OpenAI Embeddings
+
+OpenAI embeddings client initialization (text-embedding-3-small: 1536D)
+Batch embedding generation with progress tracking
+Query embedding support
+Vector statistics (L2 norms, mean, std)
+
+
+
+7. sparse_vector_generator.py (Phase 5) - BM25 Sparse Vectors
+
+BM25 algorithm implementation for sparse vectors
+Corpus building with tokenization and stopword removal
+Sparse vector generation with normalized scores
+Sparsity statistics (vocabulary size, non-zero elements)
+
+
+
+
+8. pinecone_uploader.py (Phase 6) - Pinecone Vector Database
+
+Pinecone client initialization
+Automatic index creation (ServerlessSpec, AWS)
+Hybrid vector upsert (dense + sparse)
+Batch processing with error recovery
+Index statistics retrieval
+
+
+
+
+9. pipeline.py - Main Orchestrator
+
+Complete end-to-end pipeline execution
+All 6 phases orchestrated in sequence
+Phase-level error handling and rollback
+Comprehensive pipeline statistics
+Returns detailed execution results with timing
