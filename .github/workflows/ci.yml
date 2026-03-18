@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload test results - Stage 1
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: data-ingestion-test-results
           path: test-results/
@@ -220,7 +220,7 @@ jobs:
 
       - name: Upload test results - Stage 2
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: retrieval-test-results
           path: test-results/
@@ -335,7 +335,7 @@ jobs:
 
       - name: Upload test results - Stage 3
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: evaluation-test-results
           path: test-results/
@@ -400,7 +400,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload code quality reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: code-quality-reports
           path: |
@@ -442,7 +442,7 @@ jobs:
           echo "- Code Quality - ${{ job.code-quality.status }}" >> REPORT.md
 
       - name: Upload final report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: final-ci-report
           path: |
