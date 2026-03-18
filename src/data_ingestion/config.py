@@ -64,6 +64,9 @@ class Config:
         # ============================================================================
         self.PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
         self.PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "rag-documents")
+        self.PINECONE_HOST = os.getenv(
+            "PINECONE_HOST"
+        )  # Required for actual data upsert
         self.PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1")
         self.PINECONE_METRIC = os.getenv("PINECONE_METRIC", "cosine")
 

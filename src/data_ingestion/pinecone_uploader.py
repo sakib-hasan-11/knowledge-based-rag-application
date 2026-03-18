@@ -26,6 +26,7 @@ class PineconeUploader:
         self,
         api_key: Optional[str] = None,
         index_name: Optional[str] = None,
+        host: Optional[str] = None,
         environment: Optional[str] = None,
         logger_name: str = "PineconeUploader",
     ):
@@ -35,6 +36,7 @@ class PineconeUploader:
         Args:
             api_key: Pinecone API key
             index_name: Pinecone index name
+            host: Pinecone host URL (required for actual data upsert, e.g., "index-abc123.svc.aind.pinecone.io")
             environment: Pinecone environment
             logger_name: Logger identifier
         """
@@ -42,6 +44,7 @@ class PineconeUploader:
 
         self.api_key = api_key or config.PINECONE_API_KEY
         self.index_name = index_name or config.PINECONE_INDEX_NAME
+        self.host = host or config.PINECONE_HOST
         self.environment = environment or config.PINECONE_ENVIRONMENT
         self.metric = config.PINECONE_METRIC
 
@@ -53,6 +56,7 @@ class PineconeUploader:
     def _initialize_pinecone(self) -> bool:
         """
         Initialize Pinecone client with error handling.
+        Connects to the index using host if available.
 
         Returns:
             True if successful, False otherwise
@@ -60,11 +64,30 @@ class PineconeUploader:
         try:
             self.pc = Pinecone(api_key=self.api_key)
 
+            # Get index reference - use host if provided for direct connection
+            if self.host:
+                self.index = self.pc.Index(name=self.index_name, host=self.host)
+                self.logger.info(
+                    "Pinecone index connected with explicit host",
+                    {
+                        "index_name": self.index_name,
+                        "host": self.host,
+                    },
+                )
+            else:
+                # Fallback: let SDK auto-resolve host (requires control plane connectivity)
+                self.index = self.pc.Index(self.index_name)
+                self.logger.warning(
+                    "Pinecone index connected without explicit host - SDK auto-resolving",
+                    {"index_name": self.index_name},
+                )
+
             self.logger.info(
-                "Pinecone client initialized",
+                "Pinecone client initialized successfully",
                 {
                     "api_key_provided": bool(self.api_key),
                     "index_name": self.index_name,
+                    "host_provided": bool(self.host),
                     "environment": self.environment,
                 },
             )

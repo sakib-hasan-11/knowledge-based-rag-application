@@ -1,0 +1,477 @@
+name: RAG Application CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, feature/**]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+jobs:
+  # =========================================================================
+  # STAGE 1: DATA INGESTION TESTS
+  # Tests document loading, parsing, chunking, embeddings, and Pinecone upload
+  # =========================================================================
+  test-data-ingestion:
+    name: 'Stage 1: Data Ingestion Module Tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-xdist pytest-timeout
+
+      - name: Load test environment variables
+        run: |
+          cp .env.test .env.test.backup
+          # Load secrets from GitHub
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env.test
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env.test
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env.test
+          echo "PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}" >> .env.test
+          echo "PINECONE_HOST=${{ secrets.PINECONE_HOST }}" >> .env.test
+          echo "S3_TEST_BUCKET_NAME=${{ secrets.S3_TEST_BUCKET_NAME }}" >> .env.test
+
+      - name: Test S3DocumentLoader - Connection & Loading
+        run: |
+          python -m pytest tests/test_data_ingestion.py::TestS3DocumentLoader \
+            -v --tb=short --timeout=30 -k "not encoding"
+        env:
+          ENV_FILE: .env.test
+
+      - name: Test HTMLDocumentParser - Cybersecurity & Legal Sections
+        run: |
+          python -m pytest tests/test_data_ingestion.py::TestHTMLDocumentParser \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test
+
+      - name: Test SemanticTextChunker - Chunking & Boundaries
+        run: |
+          python -m pytest tests/test_data_ingestion.py::TestSemanticTextChunker \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test
+
+      - name: Test EmbeddingsGenerator - API & Batching
+        run: |
+          python -m pytest tests/test_data_ingestion.py::TestEmbeddingsGenerator \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test
+
+      - name: Test BM25SparseVectorGenerator - Sparse Vectors
+        run: |
+          python -m pytest tests/test_data_ingestion.py::TestBM25SparseVectorGenerator \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test
+
+      - name: Test PineconeUploader - Demo Index Management
+        run: |
+          python -m pytest tests/test_data_ingestion.py::TestPineconeUploader \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test
+
+      - name: Test Data Ingestion Pipeline - End-to-End
+        run: |
+          python -m pytest tests/test_data_ingestion.py::TestDataIngestionPipeline \
+            -v --tb=short --timeout=45
+        env:
+          ENV_FILE: .env.test
+
+      - name: Upload test results - Stage 1
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: data-ingestion-test-results
+          path: test-results/
+
+  # =========================================================================
+  # STAGE 2: RETRIEVAL TESTS
+  # Tests query optimization, hybrid search, reranking, memory management
+  # =========================================================================
+  test-retrieval:
+    name: 'Stage 2: Retrieval Module Tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: test-data-ingestion
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-xdist pytest-timeout pytest-asyncio
+
+      - name: Load test environment variables
+        run: |
+          cp .env.test .env.test.retrieval
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env.test.retrieval
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env.test.retrieval
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env.test.retrieval
+          echo "PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}" >> .env.test.retrieval
+          echo "PINECONE_HOST=${{ secrets.PINECONE_HOST }}" >> .env.test.retrieval
+          echo "S3_TEST_BUCKET_NAME=${{ secrets.S3_TEST_BUCKET_NAME }}" >> .env.test.retrieval
+
+      - name: Test QueryRewriter - Query Optimization
+        run: |
+          python -m pytest tests/test_retrieval.py::TestQueryRewriter \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test MultiQueryGenerator & HyDE - Multi-perspective Search
+        run: |
+          python -m pytest tests/test_retrieval.py::TestMultiQueryGenerator \
+            -v --tb=short --timeout=30
+          python -m pytest tests/test_retrieval.py::TestHyDEGenerator \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test DomainRouter - Query Routing
+        run: |
+          python -m pytest tests/test_retrieval.py::TestDomainRouter \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test HybridRetriever - Dense + Sparse Search
+        run: |
+          python -m pytest tests/test_retrieval.py::TestHybridRetriever \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test MMRReranker - Diversity & Relevance
+        run: |
+          python -m pytest tests/test_retrieval.py::TestMMRReranker \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test CrossEncoderReranker - Fine-tuning Ranking
+        run: |
+          python -m pytest tests/test_retrieval.py::TestCrossEncoderReranker \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test TokenCounter, ContextCompressor, PromptBuilder
+        run: |
+          python -m pytest tests/test_retrieval.py::TestTokenCounter \
+            -v --tb=short --timeout=30
+          python -m pytest tests/test_retrieval.py::TestContextualCompressor \
+            -v --tb=short --timeout=30
+          python -m pytest tests/test_retrieval.py::TestPromptTemplateBuilder \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test ConversationMemoryManager - S3 Memory Persistence
+        run: |
+          python -m pytest tests/test_retrieval.py::TestConversationMemoryManager \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test ChainOfThoughtReasoner - Reasoning Steps
+        run: |
+          python -m pytest tests/test_retrieval.py::TestChainOfThoughtReasoner \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Test Retrieval Pipeline Integration - End-to-End
+        run: |
+          python -m pytest tests/test_retrieval.py::TestRetrievalPipelineIntegration \
+            -v --tb=short --timeout=60
+        env:
+          ENV_FILE: .env.test.retrieval
+
+      - name: Upload test results - Stage 2
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: retrieval-test-results
+          path: test-results/
+
+  # =========================================================================
+  # STAGE 3: ARGUMENTATION & EVALUATION TESTS
+  # Tests response generation, LangSmith tracing, RAGAS metrics, regression
+  # =========================================================================
+  test-argumentation-evaluation:
+    name: 'Stage 3: Argumentation & Evaluation Tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [test-data-ingestion, test-retrieval]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-xdist pytest-timeout
+          pip install langsmith ragas
+
+      - name: Load test environment variables
+        run: |
+          cp .env.test .env.test.eval
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env.test.eval
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env.test.eval
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env.test.eval
+          echo "PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}" >> .env.test.eval
+          echo "PINECONE_HOST=${{ secrets.PINECONE_HOST }}" >> .env.test.eval
+          echo "S3_TEST_BUCKET_NAME=${{ secrets.S3_TEST_BUCKET_NAME }}" >> .env.test.eval
+          echo "LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }}" >> .env.test.eval
+
+      - name: Test PromptTemplateBuilder - Prompt Engineering
+        run: |
+          python -m pytest tests/test_argumentation.py::TestPromptTemplateBuilder \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test ConversationMemoryManager - Memory Persistence
+        run: |
+          python -m pytest tests/test_argumentation.py::TestConversationMemoryManager \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test ChainOfThoughtReasoner - Reasoning Validation
+        run: |
+          python -m pytest tests/test_argumentation.py::TestChainOfThoughtReasoner \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test ArgumentationPipeline - Response Generation
+        run: |
+          python -m pytest tests/test_argumentation.py::TestArgumentationPipeline \
+            -v --tb=short --timeout=45
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test RAGEvaluator - Answer Quality Checks
+        run: |
+          python -m pytest tests/test_evaluation.py::TestRAGEvaluator \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test RAGAS Metrics - Faithfulness, Relevance, Precision, Recall
+        run: |
+          python -m pytest tests/test_evaluation.py::TestRAGASMetricsEvaluator \
+            -v --tb=short --timeout=60
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test RegressionTester - Baseline Comparison
+        run: |
+          python -m pytest tests/test_evaluation.py::TestRegressionTester \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test LangSmith Integration - Tracing & Project Management
+        run: |
+          python -m pytest tests/test_evaluation.py::TestLangSmithIntegration \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test EvaluationPipeline - Complete Evaluation Flow
+        run: |
+          python -m pytest tests/test_evaluation.py::TestEvaluationPipeline \
+            -v --tb=short --timeout=90
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Test EvaluationReporter - Report Generation
+        run: |
+          python -m pytest tests/test_evaluation.py::TestEvaluationReporter \
+            -v --tb=short --timeout=30
+        env:
+          ENV_FILE: .env.test.eval
+
+      - name: Upload test results - Stage 3
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: evaluation-test-results
+          path: test-results/
+
+  # =========================================================================
+  # CODE QUALITY & COVERAGE ANALYSIS
+  # =========================================================================
+  code-quality:
+    name: 'Code Quality & Coverage Analysis'
+    runs-on: ubuntu-latest
+    needs: [test-data-ingestion, test-retrieval, test-argumentation-evaluation]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pylint flake8 black isort
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term \
+            --junitxml=test-results/junit.xml
+
+      - name: Run pylint
+        run: |
+          pylint src/ --exit-zero --output-format=parseable > pylint-report.txt
+        continue-on-error: true
+
+      - name: Run flake8
+        run: |
+          flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        continue-on-error: true
+
+      - name: Check code formatting with black
+        run: |
+          black --check src/
+        continue-on-error: true
+
+      - name: Check import sorting with isort
+        run: |
+          isort --check-only src/
+        continue-on-error: true
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Upload code quality reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-quality-reports
+          path: |
+            pylint-report.txt
+            test-results/
+
+  # =========================================================================
+  # FINAL REPORT & NOTIFICATION
+  # =========================================================================
+  final-report:
+    name: 'Generate Final Report & Notify'
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [test-data-ingestion, test-retrieval, test-argumentation-evaluation, code-quality]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all test results
+        uses: actions/download-artifact@v3
+        with:
+          path: all-test-results/
+
+      - name: Generate summary report
+        run: |
+          echo "# RAG Application CI/CD Test Summary" > REPORT.md
+          echo "" >> REPORT.md
+          echo "## Build Information" >> REPORT.md
+          echo "- **Run ID**: ${{ github.run_id }}" >> REPORT.md
+          echo "- **Branch**: ${{ github.ref }}" >> REPORT.md
+          echo "- **Commit**: ${{ github.sha }}" >> REPORT.md
+          echo "- **Timestamp**: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> REPORT.md
+          echo "" >> REPORT.md
+          echo "## Test Results" >> REPORT.md
+          echo "- Stage 1: Data Ingestion - ${{ job.test-data-ingestion.status }}" >> REPORT.md
+          echo "- Stage 2: Retrieval - ${{ job.test-retrieval.status }}" >> REPORT.md
+          echo "- Stage 3: Argumentation & Evaluation - ${{ job.test-argumentation-evaluation.status }}" >> REPORT.md
+          echo "- Code Quality - ${{ job.code-quality.status }}" >> REPORT.md
+
+      - name: Upload final report
+        uses: actions/upload-artifact@v3
+        with:
+          name: final-ci-report
+          path: |
+            REPORT.md
+            all-test-results/
+
+      - name: Determine overall status
+        id: overall_status
+        run: |
+          if [[ "${{ job.test-data-ingestion.status }}" == "failure" ]] || \
+             [[ "${{ job.test-retrieval.status }}" == "failure" ]] || \
+             [[ "${{ job.test-argumentation-evaluation.status }}" == "failure" ]]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ✅ CI/CD Pipeline Complete\n\n### Test Results\n- **Stage 1**: Data Ingestion - ${{ job.test-data-ingestion.status }}\n- **Stage 2**: Retrieval - ${{ job.test-retrieval.status }}\n- **Stage 3**: Argumentation & Evaluation - ${{ job.test-argumentation-evaluation.status }}\n\n[View detailed results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            })
+
+      - name: Fail if tests failed
+        if: steps.overall_status.outputs.status == 'failure'
+        run: exit 1
