@@ -434,21 +434,24 @@ class TestCrossEncoderReranker(unittest.TestCase):
 class TestTokenCounter(unittest.TestCase):
     """Test cases for token counting and budget management"""
 
-    def test_token_counting_basic(self):
+    @patch("src.retrieval.post_retrieval.tiktoken")
+    def test_token_counting_basic(self, mock_tiktoken):
         """Test basic token counting"""
         from src.retrieval.post_retrieval import TokenCounter
 
         counter = TokenCounter()
         # Should count tokens accurately
 
-    def test_token_budget_check(self):
+    @patch("src.retrieval.post_retrieval.tiktoken")
+    def test_token_budget_check(self, mock_tiktoken):
         """Test token budget validation"""
         from src.retrieval.post_retrieval import TokenCounter
 
         counter = TokenCounter(max_tokens=500)
         # Should validate token budget
 
-    def test_token_exceeded_handling(self):
+    @patch("src.retrieval.post_retrieval.tiktoken")
+    def test_token_exceeded_handling(self, mock_tiktoken):
         """Test handling when token limit exceeded"""
         from src.retrieval.post_retrieval import TokenCounter
 

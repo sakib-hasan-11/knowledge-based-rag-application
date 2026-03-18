@@ -32,10 +32,32 @@ except ImportError:
 class TokenCounter:
     """Estimates and counts tokens for budget management."""
 
-    def __init__(self, model: str = "gpt-4", logger_name: str = "TokenCounter"):
-        """Initialize token counter."""
+    def __init__(
+        self,
+        model: str = "gpt-4",
+        max_tokens: Optional[int] = None,
+        logger_name: str = "TokenCounter",
+    ):
+        """
+        Initialize token counter.
+
+        Args:
+            model: Language model to use for tokenization. Default "gpt-4".
+            max_tokens: Maximum token budget. Optional, used for validation.
+            logger_name: Logger name for this instance.
+        """
         self.logger = create_logger(logger_name)
         self.model = model
+        self.max_tokens = max_tokens
+
+        # Validate max_tokens if provided
+        if max_tokens is not None:
+            if not isinstance(max_tokens, int):
+                raise ValueError(
+                    f"max_tokens must be an integer, got {type(max_tokens).__name__}"
+                )
+            if max_tokens <= 0:
+                raise ValueError(f"max_tokens must be positive, got {max_tokens}")
 
         try:
             if tiktoken:
@@ -50,6 +72,11 @@ class TokenCounter:
                 f"Error initializing tokenizer: {str(e)}, using approximate counting"
             )
             self.encoding = None
+
+        self.logger.info(
+            "TokenCounter initialized",
+            {"model": model, "max_tokens": max_tokens},
+        )
 
     def count_text(self, text: str) -> int:
         """Count tokens in text."""
@@ -86,6 +113,40 @@ class TokenCounter:
         except Exception as e:
             self.logger.debug(f"Error estimating document tokens: {str(e)}")
             return 0
+
+    def check_budget(self, token_count: int) -> bool:
+        """
+        Check if token count is within budget.
+
+        Args:
+            token_count: Number of tokens to check.
+
+        Returns:
+            True if within budget or no budget set, False if exceeds budget.
+        """
+        if self.max_tokens is None:
+            return True
+
+        if token_count > self.max_tokens:
+            self.logger.warning(
+                f"Token count {token_count} exceeds budget {self.max_tokens}"
+            )
+            return False
+        return True
+
+    def get_remaining_budget(self, token_count: int) -> int:
+        """
+        Get remaining token budget.
+
+        Args:
+            token_count: Current token count.
+
+        Returns:
+            Remaining tokens in budget, or -1 if no budget set.
+        """
+        if self.max_tokens is None:
+            return -1
+        return max(0, self.max_tokens - token_count)
 
 
 class ContextualCompressor:
