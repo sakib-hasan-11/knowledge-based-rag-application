@@ -12,7 +12,7 @@ tiktoken
 fastapi
 uvicorn
 streamlit
-
+boto3
 # Optional: JSON logging (can also use built-in CloudWatch formatter)
 # pythonjsonlogger
 
