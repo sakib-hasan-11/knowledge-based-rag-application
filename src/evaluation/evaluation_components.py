@@ -202,9 +202,7 @@ class RAGEvaluator:
                 results.append(result)
 
             except Exception as e:
-                logger.error(
-                    f"Error in batch evaluation for query {i}: {str(e)}"
-                )
+                logger.error(f"Error in batch evaluation for query {i}: {str(e)}")
                 results.append(
                     {"query": query, "error": str(e), "latencies": {"total_ms": 0}}
                 )
@@ -542,6 +540,278 @@ class RAGASMetricsEvaluator:
         except Exception as e:
             logger.error(f"Error printing metrics report: {str(e)}")
 
+    def compute_faithfulness(self, question: str, context: str, answer: str) -> float:
+        """
+        Compute faithfulness score - is answer faithful to context?
+
+        Args:
+            question: User question
+            context: Reference context
+            answer: Generated answer
+
+        Returns:
+            Faithfulness score (0-1)
+        """
+        try:
+            context_lower = context.lower()
+            answer_lower = answer.lower()
+
+            # Count matching words
+            answer_words = answer_lower.split()
+            matching_words = sum(1 for word in answer_words if word in context_lower)
+
+            score = matching_words / len(answer_words) if answer_words else 0.0
+
+            logger.info(
+                f"Faithfulness computed",
+                extra_data={"score": score, "matching_words": matching_words},
+            )
+
+            return min(score, 1.0)
+        except Exception as e:
+            logger.error(f"Error computing faithfulness: {str(e)}")
+            return 0.0
+
+    def compute_answer_relevance(self, question: str, answer: str) -> float:
+        """
+        Compute answer relevance score - is answer relevant to question?
+
+        Args:
+            question: User question
+            answer: Generated answer
+
+        Returns:
+            Relevance score (0-1)
+        """
+        try:
+            question_words = set(question.lower().split())
+            answer_words = set(answer.lower().split())
+
+            if not question_words:
+                return 0.0
+
+            overlap = len(question_words & answer_words)
+            score = overlap / len(question_words)
+
+            logger.info(
+                f"Answer relevance computed",
+                extra_data={"score": score, "overlap": overlap},
+            )
+
+            return min(score, 1.0)
+        except Exception as e:
+            logger.error(f"Error computing answer relevance: {str(e)}")
+            return 0.0
+
+    def compute_context_precision(self, question: str, context: List) -> float:
+        """
+        Compute context precision - are retrieved docs relevant to question?
+
+        Args:
+            question: User question
+            context: List of context documents
+
+        Returns:
+            Precision score (0-1)
+        """
+        try:
+            if not context:
+                return 0.0
+
+            question_words = set(question.lower().split())
+            relevant_docs = 0
+
+            for doc in context:
+                doc_text = (
+                    getattr(doc, "page_content", str(doc))
+                    if hasattr(doc, "page_content")
+                    else str(doc)
+                )
+                doc_words = set(doc_text.lower().split())
+
+                # Document is relevant if it shares >10% of question words
+                if len(question_words & doc_words) / len(question_words) > 0.1:
+                    relevant_docs += 1
+
+            score = relevant_docs / len(context) if context else 0.0
+
+            logger.info(
+                f"Context precision computed",
+                extra_data={"score": score, "relevant_docs": relevant_docs},
+            )
+
+            return min(score, 1.0)
+        except Exception as e:
+            logger.error(f"Error computing context precision: {str(e)}")
+            return 0.0
+
+    def compute_context_recall(
+        self, question: str, answer: str, context: List
+    ) -> float:
+        """
+        Compute context recall - does context contain all answer info?
+
+        Args:
+            question: User question
+            answer: Generated answer
+            context: List of context documents
+
+        Returns:
+            Recall score (0-1)
+        """
+        try:
+            if not context:
+                return 0.0
+
+            full_context = " ".join(
+                (
+                    getattr(doc, "page_content", str(doc))
+                    if hasattr(doc, "page_content")
+                    else str(doc)
+                )
+                for doc in context
+            ).lower()
+
+            answer_lower = answer.lower()
+            answer_words = answer_lower.split()
+
+            found_words = sum(1 for word in answer_words if word in full_context)
+            score = found_words / len(answer_words) if answer_words else 0.0
+
+            logger.info(
+                f"Context recall computed",
+                extra_data={"score": score, "found_words": found_words},
+            )
+
+            return min(score, 1.0)
+        except Exception as e:
+            logger.error(f"Error computing context recall: {str(e)}")
+            return 0.0
+
+    def compute_all_metrics(self, question: str, context: List, answer: str) -> Dict:
+        """
+        Compute all metrics at once.
+
+        Args:
+            question: User question
+            context: List of context documents
+            answer: Generated answer
+
+        Returns:
+            Dict with all metric scores
+        """
+        try:
+            # Convert context string to list if needed
+            if isinstance(context, str):
+                context = [context]
+
+            metrics = {
+                "faithfulness": self.compute_faithfulness(
+                    question=question,
+                    context=" ".join(
+                        (
+                            getattr(doc, "page_content", str(doc))
+                            if hasattr(doc, "page_content")
+                            else str(doc)
+                        )
+                        for doc in context
+                    ),
+                    answer=answer,
+                ),
+                "answer_relevance": self.compute_answer_relevance(
+                    question=question, answer=answer
+                ),
+                "context_precision": self.compute_context_precision(
+                    question=question, context=context
+                ),
+                "context_recall": self.compute_context_recall(
+                    question=question, answer=answer, context=context
+                ),
+            }
+
+            logger.info(
+                f"All metrics computed",
+                extra_data={"metrics_count": len(metrics)},
+            )
+
+            return metrics
+        except Exception as e:
+            logger.error(f"Error computing all metrics: {str(e)}")
+            return {
+                "faithfulness": 0.0,
+                "answer_relevance": 0.0,
+                "context_precision": 0.0,
+                "context_recall": 0.0,
+                "error": str(e),
+            }
+
+    def compute_metrics_batch(self, test_cases: List[Dict]) -> Dict:
+        """
+        Compute metrics for a batch of test cases.
+
+        Args:
+            test_cases: List of dicts with question, context, answer
+
+        Returns:
+            Dict with aggregated metrics
+        """
+        try:
+            all_metrics = []
+
+            for i, test_case in enumerate(test_cases):
+                metrics = self.compute_all_metrics(
+                    question=test_case.get("question", ""),
+                    context=test_case.get("context", []),
+                    answer=test_case.get("answer", ""),
+                )
+                all_metrics.append(metrics)
+
+            # Aggregate metrics
+            aggregated = {
+                "faithfulness": (
+                    sum(m.get("faithfulness", 0) for m in all_metrics)
+                    / len(all_metrics)
+                    if all_metrics
+                    else 0.0
+                ),
+                "answer_relevance": (
+                    sum(m.get("answer_relevance", 0) for m in all_metrics)
+                    / len(all_metrics)
+                    if all_metrics
+                    else 0.0
+                ),
+                "context_precision": (
+                    sum(m.get("context_precision", 0) for m in all_metrics)
+                    / len(all_metrics)
+                    if all_metrics
+                    else 0.0
+                ),
+                "context_recall": (
+                    sum(m.get("context_recall", 0) for m in all_metrics)
+                    / len(all_metrics)
+                    if all_metrics
+                    else 0.0
+                ),
+                "sample_count": len(all_metrics),
+            }
+
+            logger.info(
+                f"Batch metrics computed",
+                extra_data={"sample_count": len(all_metrics)},
+            )
+
+            return aggregated
+        except Exception as e:
+            logger.error(f"Error computing batch metrics: {str(e)}")
+            return {
+                "faithfulness": 0.0,
+                "answer_relevance": 0.0,
+                "context_precision": 0.0,
+                "context_recall": 0.0,
+                "sample_count": 0,
+                "error": str(e),
+            }
+
 
 class RegressionTester:
     """
@@ -730,4 +1000,3 @@ class RegressionTester:
         except Exception as e:
             logger.error(f"Error detecting regressions: {str(e)}")
             return {"error": str(e), "regressions": [], "improvements": []}
-
