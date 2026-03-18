@@ -79,7 +79,7 @@ class RAGEvaluator:
 
         logger.info(
             f"RAGEvaluator initialized",
-            extra={
+            extra_data={
                 "has_retrieval": retrieval_pipeline is not None,
                 "has_generation": generation_pipeline is not None,
                 "timeout": timeout_seconds,
@@ -124,13 +124,13 @@ class RAGEvaluator:
                     if verbose:
                         logger.debug(
                             f"Retrieval completed",
-                            extra={
+                            extra_data={
                                 "latency_ms": result["latencies"]["retrieval_ms"],
                                 "docs_retrieved": len(result["retrieved_docs"]),
                             },
                         )
                 except Exception as e:
-                    logger.error(f"Retrieval failed: {str(e)}", exc_info=True)
+                    logger.error(f"Retrieval failed: {str(e)}")
                     result["error"] = f"Retrieval error: {str(e)}"
                     result["latencies"]["total_ms"] = (time.time() - start_time) * 1000
                     return result
@@ -150,13 +150,13 @@ class RAGEvaluator:
                     if verbose:
                         logger.debug(
                             f"Generation completed",
-                            extra={
+                            extra_data={
                                 "latency_ms": result["latencies"]["generation_ms"],
                                 "response_length": len(result["response"]),
                             },
                         )
                 except Exception as e:
-                    logger.error(f"Generation failed: {str(e)}", exc_info=True)
+                    logger.error(f"Generation failed: {str(e)}")
                     result["error"] = f"Generation error: {str(e)}"
                     result["latencies"]["total_ms"] = (time.time() - start_time) * 1000
                     return result
@@ -165,13 +165,13 @@ class RAGEvaluator:
 
             logger.debug(
                 f"Query evaluation completed",
-                extra={"total_latency_ms": result["latencies"]["total_ms"]},
+                extra_data={"total_latency_ms": result["latencies"]["total_ms"]},
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error evaluating query: {str(e)}", exc_info=True)
+            logger.error(f"Error evaluating query: {str(e)}")
             result["error"] = str(e)
             result["latencies"]["total_ms"] = (time.time() - start_time) * 1000
             return result
@@ -203,7 +203,7 @@ class RAGEvaluator:
 
             except Exception as e:
                 logger.error(
-                    f"Error in batch evaluation for query {i}: {str(e)}", exc_info=True
+                    f"Error in batch evaluation for query {i}: {str(e)}"
                 )
                 results.append(
                     {"query": query, "error": str(e), "latencies": {"total_ms": 0}}
@@ -211,7 +211,7 @@ class RAGEvaluator:
 
         logger.info(
             f"Batch evaluation completed",
-            extra={
+            extra_data={
                 "total_queries": len(queries),
                 "successful": len([r for r in results if "error" not in r]),
                 "failed": len([r for r in results if "error" in r]),
@@ -219,6 +219,167 @@ class RAGEvaluator:
         )
 
         return results
+
+    def evaluate_answer_relevance(self, query: str, answer: str) -> Dict:
+        """
+        Evaluate relevance of answer to query.
+
+        Args:
+            query: User query
+            answer: Generated answer
+
+        Returns:
+            Dict with relevance score
+        """
+        try:
+            # Simple relevance scoring based on overlap
+            query_words = set(query.lower().split())
+            answer_words = set(answer.lower().split())
+
+            if not query_words:
+                return {"relevance_score": 0.0, "status": "error"}
+
+            overlap = len(query_words & answer_words)
+            relevance_score = min(overlap / len(query_words), 1.0)
+
+            logger.info(
+                f"Answer relevance evaluated",
+                extra_data={
+                    "query_length": len(query),
+                    "answer_length": len(answer),
+                    "relevance_score": relevance_score,
+                },
+            )
+
+            return {"relevance_score": relevance_score, "status": "success"}
+        except Exception as e:
+            logger.error(f"Error evaluating answer relevance: {str(e)}")
+            return {"relevance_score": 0.0, "status": "error", "error": str(e)}
+
+    def evaluate_faithfulness(self, context: str, answer: str) -> Dict:
+        """
+        Evaluate whether answer is faithful to the provided context.
+
+        Args:
+            context: Reference context
+            answer: Generated answer
+
+        Returns:
+            Dict with faithfulness score
+        """
+        try:
+            # Simple faithfulness check: verify answer content is in context
+            context_lower = context.lower()
+            answer_lower = answer.lower()
+
+            # Count matching phrases
+            answer_words = answer_lower.split()
+            matching_words = sum(1 for word in answer_words if word in context_lower)
+
+            if not answer_words:
+                return {"faithfulness_score": 0.0, "status": "error"}
+
+            faithfulness_score = matching_words / len(answer_words)
+
+            logger.info(
+                f"Faithfulness evaluated",
+                extra_data={
+                    "context_length": len(context),
+                    "answer_length": len(answer),
+                    "faithfulness_score": faithfulness_score,
+                },
+            )
+
+            return {"faithfulness_score": faithfulness_score, "status": "success"}
+        except Exception as e:
+            logger.error(f"Error evaluating faithfulness: {str(e)}")
+            return {"faithfulness_score": 0.0, "status": "error", "error": str(e)}
+
+    def evaluate_context_precision(self, query: str, context: List) -> Dict:
+        """
+        Evaluate precision of retrieved context.
+
+        Args:
+            query: User query
+            context: List of retrieved Document objects
+
+        Returns:
+            Dict with precision score
+        """
+        try:
+            if not context:
+                return {"precision_score": 0.0, "status": "success"}
+
+            # Simple precision: measure relevance of each document to query
+            query_words = set(query.lower().split())
+            relevant_docs = 0
+
+            for doc in context:
+                doc_text = getattr(doc, "page_content", str(doc)).lower()
+                doc_words = set(doc_text.split())
+
+                # Document is relevant if it shares >10% of query words
+                if len(query_words & doc_words) / len(query_words) > 0.1:
+                    relevant_docs += 1
+
+            precision_score = relevant_docs / len(context) if context else 0.0
+
+            logger.info(
+                f"Context precision evaluated",
+                extra_data={
+                    "total_docs": len(context),
+                    "relevant_docs": relevant_docs,
+                    "precision_score": precision_score,
+                },
+            )
+
+            return {"precision_score": precision_score, "status": "success"}
+        except Exception as e:
+            logger.error(f"Error evaluating context precision: {str(e)}")
+            return {"precision_score": 0.0, "status": "error", "error": str(e)}
+
+    def evaluate_context_recall(self, query: str, answer: str, context: List) -> Dict:
+        """
+        Evaluate recall: whether all relevant information is in context.
+
+        Args:
+            query: User query
+            answer: Generated answer
+            context: List of retrieved Document objects
+
+        Returns:
+            Dict with recall score
+        """
+        try:
+            if not context:
+                return {"recall_score": 0.0, "status": "success"}
+
+            # Combine all context
+            full_context = " ".join(
+                getattr(doc, "page_content", str(doc)) for doc in context
+            ).lower()
+            answer_lower = answer.lower()
+
+            # Count answer words present in context
+            answer_words = answer_lower.split()
+            found_words = sum(1 for word in answer_words if word in full_context)
+
+            recall_score = found_words / len(answer_words) if answer_words else 0.0
+
+            logger.info(
+                f"Context recall evaluated",
+                extra_data={
+                    "total_docs": len(context),
+                    "found_words": found_words,
+                    "total_words": len(answer_words),
+                    "recall_score": recall_score,
+                },
+            )
+
+            return {"recall_score": recall_score, "status": "success"}
+        except Exception as e:
+            logger.error(f"Error evaluating context recall: {str(e)}")
+            return {"recall_score": 0.0, "status": "error", "error": str(e)}
 
 
 class RAGASMetricsEvaluator:
@@ -245,7 +406,7 @@ class RAGASMetricsEvaluator:
 
         logger.info(
             f"RAGASMetricsEvaluator initialized",
-            extra={"metrics_available": len(self.metrics)},
+            extra_data={"metrics_available": len(self.metrics)},
         )
 
     def prepare_evaluation_dataset(
@@ -288,12 +449,12 @@ class RAGASMetricsEvaluator:
 
             logger.info(
                 f"Dataset prepared for RAGAS",
-                extra={"samples": len(dataset), "columns": dataset.column_names},
+                extra_data={"samples": len(dataset), "columns": dataset.column_names},
             )
 
             return dataset
         except Exception as e:
-            logger.error(f"Error preparing dataset: {str(e)}", exc_info=True)
+            logger.error(f"Error preparing dataset: {str(e)}")
             return None
 
     def evaluate(self, evaluation_results: List[Dict]) -> Dict:
@@ -345,13 +506,13 @@ class RAGASMetricsEvaluator:
 
             logger.info(
                 f"RAGAS evaluation completed",
-                extra={"metrics_computed": len(overall_scores)},
+                extra_data={"metrics_computed": len(overall_scores)},
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error during RAGAS evaluation: {str(e)}", exc_info=True)
+            logger.error(f"Error during RAGAS evaluation: {str(e)}")
             return {
                 "error": str(e),
                 "individual_scores": None,
@@ -379,7 +540,7 @@ class RAGASMetricsEvaluator:
                 logger.warning(f"Evaluation Error: {metrics_results['error']}")
 
         except Exception as e:
-            logger.error(f"Error printing metrics report: {str(e)}", exc_info=True)
+            logger.error(f"Error printing metrics report: {str(e)}")
 
 
 class RegressionTester:
@@ -420,7 +581,7 @@ class RegressionTester:
 
             logger.info(
                 f"Baseline metrics loaded from S3",
-                extra={"keys": list(self.baseline_metrics.keys())},
+                extra_data={"keys": list(self.baseline_metrics.keys())},
             )
             return True
         except Exception as e:
@@ -454,7 +615,7 @@ class RegressionTester:
             logger.info(f"Baseline metrics saved to S3")
             return True
         except Exception as e:
-            logger.error(f"Error saving baseline: {str(e)}", exc_info=True)
+            logger.error(f"Error saving baseline: {str(e)}")
             return False
 
     def detect_regressions(
@@ -553,7 +714,7 @@ class RegressionTester:
 
             logger.info(
                 f"Regression analysis completed",
-                extra={
+                extra_data={
                     "regressions_found": len(regressions),
                     "improvements_found": len(improvements),
                 },
@@ -567,5 +728,6 @@ class RegressionTester:
             }
 
         except Exception as e:
-            logger.error(f"Error detecting regressions: {str(e)}", exc_info=True)
+            logger.error(f"Error detecting regressions: {str(e)}")
             return {"error": str(e), "regressions": [], "improvements": []}
+

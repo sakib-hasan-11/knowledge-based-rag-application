@@ -94,7 +94,7 @@ class EvaluationPipeline:
 
         logger.info(
             f"EvaluationPipeline initialized",
-            extra={
+            extra_data={
                 "has_retrieval": retrieval_pipeline is not None,
                 "has_generation": generation_pipeline is not None,
                 "tracing_enabled": self.langsmith_tracer is not None,
@@ -129,7 +129,7 @@ class EvaluationPipeline:
         try:
             logger.info(
                 f"Phase 11 - Evaluation & Tracing started",
-                extra={
+                extra_data={
                     "num_queries": len(evaluation_queries),
                     "report_name": report_name,
                 },
@@ -225,13 +225,13 @@ class EvaluationPipeline:
 
             logger.info(
                 f"Phase 11 - Evaluation & Tracing completed",
-                extra={"execution_time": elapsed_time, "success": True},
+                extra_data={"execution_time": elapsed_time, "success": True},
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error in complete evaluation: {str(e)}", exc_info=True)
+            logger.error(f"Error in complete evaluation: {str(e)}")
             return {
                 "status": "error",
                 "error": str(e),
@@ -256,7 +256,7 @@ class EvaluationPipeline:
 
             logger.info(
                 f"Running quick evaluation",
-                extra={"num_queries": len(evaluation_queries)},
+                extra_data={"num_queries": len(evaluation_queries)},
             )
 
             rag_results = self.rag_evaluator.batch_evaluate(
@@ -274,7 +274,7 @@ class EvaluationPipeline:
 
             logger.info(
                 f"Quick evaluation completed",
-                extra={
+                extra_data={
                     "success_rate": summary["successful"] / len(rag_results) * 100
                     if rag_results
                     else 0
@@ -284,7 +284,7 @@ class EvaluationPipeline:
             return summary
 
         except Exception as e:
-            logger.error(f"Error in quick evaluation: {str(e)}", exc_info=True)
+            logger.error(f"Error in quick evaluation: {str(e)}")
             return {"error": str(e), "execution_time_seconds": time.time() - start_time}
 
     def _calculate_avg_latency(self, results: List[Dict]) -> float:
@@ -377,5 +377,7 @@ class EvaluationStatistics:
             logger.info(f"Evaluation statistics summary", extra_data=summary)
             return summary
         except Exception as e:
-            logger.error(f"Error getting statistics summary: {str(e)}", exc_info=True)
+            logger.error(f"Error getting statistics summary: {str(e)}")
             return {}
+
+

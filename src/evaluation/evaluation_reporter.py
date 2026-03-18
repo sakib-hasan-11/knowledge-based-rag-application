@@ -64,7 +64,7 @@ class EvaluationReporter:
         try:
             logger.info(
                 f"Generating evaluation report: {report_name}",
-                extra={"results_count": len(rag_evaluator_results)},
+                extra_data={"results_count": len(rag_evaluator_results)},
             )
 
             report = {
@@ -82,7 +82,7 @@ class EvaluationReporter:
             return report
 
         except Exception as e:
-            logger.error(f"Error generating report: {str(e)}", exc_info=True)
+            logger.error(f"Error generating report: {str(e)}")
             return {
                 "error": str(e),
                 "timestamp": datetime.utcnow().isoformat(),
@@ -156,12 +156,12 @@ class EvaluationReporter:
 
             logger.debug(
                 f"Summary generated",
-                extra={"success_rate": summary["success_rate_percent"]},
+                extra_data={"success_rate": summary["success_rate_percent"]},
             )
 
             return summary
         except Exception as e:
-            logger.error(f"Error generating summary: {str(e)}", exc_info=True)
+            logger.error(f"Error generating summary: {str(e)}")
             return {"error": str(e)}
 
     def _analyze_latencies(self, results: List[Dict]) -> Dict:
@@ -228,7 +228,7 @@ class EvaluationReporter:
             return latency_analysis
 
         except Exception as e:
-            logger.error(f"Error analyzing latencies: {str(e)}", exc_info=True)
+            logger.error(f"Error analyzing latencies: {str(e)}")
             return {"error": str(e)}
 
     def _generate_recommendations(self, metrics: Dict) -> List[str]:
@@ -282,7 +282,7 @@ class EvaluationReporter:
             return recommendations
 
         except Exception as e:
-            logger.error(f"Error generating recommendations: {str(e)}", exc_info=True)
+            logger.error(f"Error generating recommendations: {str(e)}")
             return ["⚠ Error generating recommendations"]
 
     def save_report(self, report: Dict, format: str = "json") -> bool:
@@ -328,11 +328,11 @@ class EvaluationReporter:
             )
 
             logger.info(
-                f"Report saved to S3", extra={"s3_key": filename, "format": format}
+                f"Report saved to S3", extra_data={"s3_key": filename, "format": format}
             )
             return True
         except Exception as e:
-            logger.error(f"Error saving report to S3: {str(e)}", exc_info=True)
+            logger.error(f"Error saving report to S3: {str(e)}")
             return False
 
     def print_report(self, report: Dict):
@@ -421,4 +421,6 @@ class EvaluationReporter:
             logger.info("=" * 80)
 
         except Exception as e:
-            logger.error(f"Error printing report: {str(e)}", exc_info=True)
+            logger.error(f"Error printing report: {str(e)}")
+
+
