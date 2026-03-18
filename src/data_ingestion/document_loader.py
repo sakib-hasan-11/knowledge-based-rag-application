@@ -2,9 +2,10 @@
 Document Loader Module (Phase 2.5)
 
 Loads HTML documents from AWS S3 bucket or local filesystem.
-Includes error handling and logging for production use.
+Includes error handling, retry logic, and encoding detection for production use.
 """
 
+import time
 from typing import Dict, List, Optional
 
 import boto3
@@ -26,6 +27,9 @@ class S3DocumentLoader:
         bucket_name: Optional[str] = None,
         prefix: Optional[str] = None,
         logger_name: str = "S3DocumentLoader",
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+        max_file_size_mb: int = 100,
     ):
         """
         Initialize S3 document loader.
@@ -34,11 +38,18 @@ class S3DocumentLoader:
             s3_client: boto3 S3 client (auto-created if None)
             bucket_name: S3 bucket name (from config if None)
             prefix: S3 prefix for filtering objects (from config if None)
-            logger_name: Logger identifier
+            logger_name: Logger identifier for this instance
+            max_retries: Maximum retry attempts for failed downloads (default: 3)
+            retry_delay: Delay in seconds between retries (exponential backoff used)
+            max_file_size_mb: Maximum file size to load in MB (default: 100MB)
         """
         self.logger = create_logger(logger_name)
         self.bucket_name = bucket_name or config.S3_BUCKET_NAME
         self.prefix = prefix or config.S3_DOCUMENT_PREFIX
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
+        self.encoding_fallbacks = ["utf-8", "latin-1", "iso-8859-1", "cp1252"]
 
         # Initialize S3 client with error handling
         self.s3_client = s3_client
@@ -127,7 +138,7 @@ class S3DocumentLoader:
 
     def load_document(self, s3_key: str) -> Optional[str]:
         """
-        Load a single document from S3 with error handling.
+        Load a single document from S3 with error handling, retry logic, and encoding detection.
 
         Args:
             s3_key: Full S3 object key
@@ -139,48 +150,161 @@ class S3DocumentLoader:
             self.logger.error("S3 client not available")
             return None
 
-        try:
-            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
-            body_content = response["Body"].read()
+        last_error = None
 
-            # Handle both bytes and string content
-            if isinstance(body_content, bytes):
-                content = body_content.decode("utf-8")
-            else:
-                content = body_content
+        for attempt in range(self.max_retries):
+            try:
+                response = self.s3_client.get_object(
+                    Bucket=self.bucket_name, Key=s3_key
+                )
+                body_content = response["Body"].read()
 
-            self.logger.info(
-                f"Loaded document from S3",
+                # Validate file size
+                if len(body_content) > self.max_file_size_bytes:
+                    self.logger.error(
+                        f"File exceeds maximum size limit",
+                        {
+                            "s3_key": s3_key,
+                            "file_size_bytes": len(body_content),
+                            "max_size_bytes": self.max_file_size_bytes,
+                        },
+                    )
+                    return None
+
+                # Decode content with encoding fallback
+                content = self._decode_content(body_content, s3_key)
+                if content is None:
+                    return None
+
+                self.logger.info(
+                    f"Successfully loaded document from S3",
+                    {
+                        "s3_key": s3_key,
+                        "size_bytes": len(content),
+                        "bucket": self.bucket_name,
+                        "attempt": attempt + 1,
+                    },
+                )
+                return content
+
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "UNKNOWN")
+
+                # Check if error is transient and retryable
+                if error_code in ["ThrottlingException", "RequestTimeout", "SlowDown"]:
+                    last_error = e
+                    if attempt < self.max_retries - 1:
+                        wait_time = self.retry_delay * (
+                            2**attempt
+                        )  # Exponential backoff
+                        self.logger.warning(
+                            f"Transient error loading document, retrying with backoff",
+                            {
+                                "s3_key": s3_key,
+                                "error_code": error_code,
+                                "attempt": attempt + 1,
+                                "max_retries": self.max_retries,
+                                "wait_seconds": wait_time,
+                            },
+                        )
+                        time.sleep(wait_time)
+                        continue
+
+                self.logger.error(
+                    f"Error loading document from S3: {str(e)}",
+                    {
+                        "s3_key": s3_key,
+                        "bucket": self.bucket_name,
+                        "error_code": error_code,
+                        "attempt": attempt + 1,
+                    },
+                )
+                return None
+
+            except ConnectionError as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (2**attempt)
+                    self.logger.warning(
+                        f"Connection error loading document, retrying with backoff",
+                        {
+                            "s3_key": s3_key,
+                            "attempt": attempt + 1,
+                            "max_retries": self.max_retries,
+                            "wait_seconds": wait_time,
+                        },
+                    )
+                    time.sleep(wait_time)
+                    continue
+
+                self.logger.error(
+                    f"Connection error loading document after {self.max_retries} attempts",
+                    {
+                        "s3_key": s3_key,
+                        "error": str(e),
+                    },
+                )
+                return None
+
+            except UnicodeDecodeError as e:
+                self.logger.error(
+                    f"Failed to decode document content with all fallback encodings",
+                    {"s3_key": s3_key, "exception_type": "UnicodeDecodeError"},
+                )
+                return None
+
+            except Exception as e:
+                self.logger.error(
+                    f"Unexpected error loading S3 document: {str(e)}",
+                    {"s3_key": s3_key, "exception_type": type(e).__name__},
+                )
+                return None
+
+        # All retries exhausted
+        if last_error:
+            self.logger.error(
+                f"Failed to load document after {self.max_retries} retries",
                 {
                     "s3_key": s3_key,
-                    "size_bytes": len(content),
-                    "bucket": self.bucket_name,
+                    "last_error": str(last_error),
                 },
             )
-            return content
+        return None
 
-        except ClientError as e:
-            self.logger.error(
-                f"Error loading document from S3: {str(e)}",
-                {
-                    "s3_key": s3_key,
-                    "bucket": self.bucket_name,
-                    "error_code": e.response.get("Error", {}).get("Code", "UNKNOWN"),
-                },
-            )
-            return None
-        except UnicodeDecodeError as e:
-            self.logger.error(
-                f"Failed to decode document content: {str(e)}",
-                {"s3_key": s3_key, "exception_type": "UnicodeDecodeError"},
-            )
-            return None
-        except Exception as e:
-            self.logger.error(
-                f"Unexpected error loading S3 document: {str(e)}",
-                {"s3_key": s3_key, "exception_type": type(e).__name__},
-            )
-            return None
+    def _decode_content(self, body_content: bytes, s3_key: str) -> Optional[str]:
+        """
+        Decode content with multiple encoding fallback attempts.
+
+        Args:
+            body_content: Raw bytes from S3 object
+            s3_key: S3 key for logging context
+
+        Returns:
+            Decoded string, or None if all encoding attempts fail
+        """
+        for encoding in self.encoding_fallbacks:
+            try:
+                content = body_content.decode(encoding)
+                self.logger.debug(
+                    f"Successfully decoded content using encoding",
+                    {
+                        "s3_key": s3_key,
+                        "encoding": encoding,
+                    },
+                )
+                return content
+            except (UnicodeDecodeError, AttributeError):
+                continue
+
+        # All encoding attempts failed
+        self.logger.error(
+            f"Failed to decode document with all fallback encodings",
+            {
+                "s3_key": s3_key,
+                "attempted_encodings": self.encoding_fallbacks,
+            },
+        )
+        return None
 
     def load_local_html(self, file_path: str) -> Optional[str]:
         """

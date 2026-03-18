@@ -141,10 +141,14 @@ class TestS3DocumentLoader(unittest.TestCase):
     @patch("boto3.client")
     def test_load_document_encoding_issues(self, mock_boto_client):
         """Test handling of encoding issues in HTML content"""
+        from io import BytesIO
+
         mock_client = MagicMock()
-        # Test with various encodings
+        # Test with UTF-8 encoding (including special character €)
         mock_client.get_object.return_value = {
-            "Body": StringIO("<html><body>UTF-8 Content: €</body></html>")
+            "Body": BytesIO(
+                "<html><body>UTF-8 Content: €</body></html>".encode("utf-8")
+            )
         }
         mock_boto_client.return_value = mock_client
 
@@ -154,6 +158,7 @@ class TestS3DocumentLoader(unittest.TestCase):
         content = loader.load_document("test_file.html")
 
         self.assertIsNotNone(content)
+        self.assertIn("€", content)
 
 
 class TestHTMLDocumentParser(unittest.TestCase):

@@ -147,19 +147,30 @@ class TestMultiQueryGenerator(unittest.TestCase):
 class TestHyDEGenerator(unittest.TestCase):
     """Test cases for Hypothetical Document Embeddings generation"""
 
-    @patch("langchain_openai.ChatOpenAI")
-    def test_generate_hypothetical_documents(self, mock_llm):
+    @patch("src.retrieval.pre_retrieval.OpenAIEmbeddings")
+    @patch("src.retrieval.pre_retrieval.ChatOpenAI")
+    def test_generate_hypothetical_documents(self, mock_llm, mock_embeddings):
         """Test generating hypothetical documents"""
+        # Mock ChatOpenAI
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.content = "Hypothetical document with cybersecurity content"
         mock_client.invoke.return_value = mock_response
         mock_llm.return_value = mock_client
 
+        # Mock OpenAIEmbeddings
+        mock_embed_client = MagicMock()
+        mock_embed_client.embed_query.return_value = [
+            0.1
+        ] * 1536  # Mock embedding vector
+        mock_embeddings.return_value = mock_embed_client
+
         from src.retrieval.pre_retrieval import HyDEGenerator
 
         generator = HyDEGenerator()
         # Should generate hypothetical docs
+        self.assertIsNotNone(generator)
+        self.assertEqual(generator.llm_model, "gpt-4-turbo")
 
     def test_hyde_embedding_quality(self):
         """Test quality of HyDE embeddings"""
