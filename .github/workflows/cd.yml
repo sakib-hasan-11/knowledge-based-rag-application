@@ -189,13 +189,15 @@ jobs:
           IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:data-ingestion-latest"
           IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:data-ingestion-$SHORT_SHA"
           
-          echo "📦 Building Data Ingestion Docker Image"
+          echo "📦 Building Data Ingestion Docker Image (Fresh Build - No Cache)"
           echo "  Repository: $REPO_NAME"
           echo "  Service Tag: data-ingestion"
           echo "  Commit: $SHORT_SHA"
           echo "  Timestamp: $TIMESTAMP"
+          echo "  Build Time: $(date)"
           
           docker build \
+            --no-cache \
             -f data_ingestion.Dockerfile \
             -t "$IMAGE_URI" \
             -t "$IMAGE_URI_LATEST" \
@@ -203,20 +205,31 @@ jobs:
             --label "service=data-ingestion" \
             --label "commit=$SHORT_SHA" \
             --label "timestamp=$TIMESTAMP" \
+            --label "build-time=$(date)" \
             .
           
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
           echo "image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
           echo "image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
-          echo "✓ Data Ingestion Docker image built successfully"
+          echo "✓ Data Ingestion Docker image built successfully (Fresh - No Cache)"
 
       - name: Push Data Ingestion image to ECR
         run: |
           echo "🚀 Pushing Data Ingestion image to ECR..."
+          echo ""
+          echo "Pushing: ${{ steps.build.outputs.image_uri }}"
           docker push "${{ steps.build.outputs.image_uri }}"
+          echo "✓ Pushed data-ingestion tag"
+          echo ""
+          echo "Pushing: ${{ steps.build.outputs.image_uri_latest }}"
           docker push "${{ steps.build.outputs.image_uri_latest }}"
+          echo "✓ Pushed data-ingestion-latest tag"
+          echo ""
+          echo "Pushing: ${{ steps.build.outputs.image_uri_commit }}"
           docker push "${{ steps.build.outputs.image_uri_commit }}"
-          echo "✓ Data Ingestion image pushed successfully"
+          echo "✓ Pushed commit-specific tag"
+          echo ""
+          echo "✅ Data Ingestion image pushed successfully with html5lib parser included"
 
       - name: Verify image in ECR
         run: |
