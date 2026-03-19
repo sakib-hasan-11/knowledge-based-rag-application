@@ -6,18 +6,17 @@ on:
   workflow_dispatch:
 
 env:
-  PYTHON_VERSION: '3.11'
-  PIP_DISABLE_PIP_VERSION_CHECK: 1
   ECR_REPOSITORY: apple-knowledge-rag
 
 jobs:
   # =========================================================================
-  # STAGE 1: BUILD & PUSH DOCKER IMAGES TO ECR (FastAPI, Streamlit, Data Ingestion)
+  # SEGMENT 1: BUILD & PUSH FASTAPI IMAGE (Currently DISABLED)
   # =========================================================================
-  build-and-push-ecr:
-    name: Build & Push Docker Images to ECR
+  build-and-push-fastapi:
+    if: false  # Set to true to enable FastAPI builds
+    name: Build & Push FastAPI Image to ECR
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     permissions:
       contents: read
 
@@ -25,63 +24,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ===================================================================
-      # VALIDATE REQUIRED SECRETS
-      # ===================================================================
-      - name: Validate required secrets
-        run: |
-          echo "🔍 Validating required GitHub secrets..."
-          
-          MISSING_SECRETS=()
-          
-          # Check required AWS secrets
-          if [ -z "${{ secrets.AWS_REGION }}" ]; then
-            MISSING_SECRETS+=("AWS_REGION")
-          fi
-          
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
-            MISSING_SECRETS+=("AWS_ACCESS_KEY_ID")
-          fi
-          
-          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
-            MISSING_SECRETS+=("AWS_SECRET_ACCESS_KEY")
-          fi
-          
-          # Check required S3 secret (no longer optional)
-          if [ -z "${{ secrets.S3_BUCKET_NAME }}" ]; then
-            MISSING_SECRETS+=("S3_BUCKET_NAME (REQUIRED - no default value)")
-          fi
-          
-          # Check required OpenAI secret
-          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
-            MISSING_SECRETS+=("OPENAI_API_KEY")
-          fi
-          
-          # Check required Pinecone secrets
-          if [ -z "${{ secrets.PINECONE_API_KEY }}" ]; then
-            MISSING_SECRETS+=("PINECONE_API_KEY")
-          fi
-          
-          if [ -z "${{ secrets.PINECONE_HOST }}" ]; then
-            MISSING_SECRETS+=("PINECONE_HOST")
-          fi
-          
-          # Report results
-          if [ ${#MISSING_SECRETS[@]} -eq 0 ]; then
-            echo "✓ All required secrets are configured"
-          else
-            echo "❌ Missing required secrets:"
-            for secret in "${MISSING_SECRETS[@]}"; do
-              echo "  - $secret"
-            done
-            echo ""
-            echo "📖 See CD_PIPELINE_SETUP.md for setup instructions"
-            exit 1
-          fi
-
-      # ===================================================================
-      # AWS AUTHENTICATION - Using Access Keys
-      # ===================================================================
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -90,281 +32,221 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           mask-aws-account-id: true
 
-      - name: Verify AWS credentials
+      - name: Create ECR repository if not exists
         run: |
-          echo "Verifying AWS credentials..."
-          if ! aws sts get-caller-identity; then
-            echo "❌ AWS credentials not configured"
-            echo "Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION"
-            exit 1
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          if ! aws ecr describe-repositories --repository-names "$REPO_NAME" --region "${{ secrets.AWS_REGION }}" 2>/dev/null; then
+            aws ecr create-repository --repository-name "$REPO_NAME" --region "${{ secrets.AWS_REGION }}" --encryption-configuration encryptionType=AES256
           fi
-          echo "✓ AWS credentials configured successfully"
 
-      # ===================================================================
-      # CREATE ECR REPOSITORY IF IT DOESN'T EXIST
-      # ===================================================================
-      - name: Create ECR Repository if not exists
-        id: ecr_repo
+      - name: Get ECR Registry
+        id: ecr
+        run: |
+          ECR_REGISTRY=$(aws ecr describe-repositories --repository-names "${{ env.ECR_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}" --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
+          echo "registry=$ECR_REGISTRY" >> $GITHUB_OUTPUT
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.ecr.outputs.registry }}
+
+      - name: Build FastAPI image
+        id: build
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          REGISTRY="${{ steps.ecr.outputs.registry }}"
+          SHORT_SHA="${{ github.sha }}".substring(0,7)
+          IMAGE_URI="$REGISTRY/$REPO_NAME:api"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:api-latest"
+          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:api-${SHORT_SHA}"
+          docker build -f Dockerfile.api -t "$IMAGE_URI" -t "$IMAGE_URI_LATEST" -t "$IMAGE_URI_COMMIT" .
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
+          echo "image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
+
+      - name: Push FastAPI image to ECR
+        run: |
+          docker push "${{ steps.build.outputs.image_uri }}"
+          docker push "${{ steps.build.outputs.image_uri_latest }}"
+          docker push "${{ steps.build.outputs.image_uri_commit }}"
+          echo "✓ FastAPI image pushed successfully"
+
+  # =========================================================================
+  # SEGMENT 2: BUILD & PUSH STREAMLIT IMAGE (Currently DISABLED)
+  # =========================================================================
+  build-and-push-streamlit:
+    if: false  # Set to true to enable Streamlit builds
+    name: Build & Push Streamlit Image to ECR
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Create ECR repository if not exists
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          if ! aws ecr describe-repositories --repository-names "$REPO_NAME" --region "${{ secrets.AWS_REGION }}" 2>/dev/null; then
+            aws ecr create-repository --repository-name "$REPO_NAME" --region "${{ secrets.AWS_REGION }}" --encryption-configuration encryptionType=AES256
+          fi
+
+      - name: Get ECR Registry
+        id: ecr
+        run: |
+          ECR_REGISTRY=$(aws ecr describe-repositories --repository-names "${{ env.ECR_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}" --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
+          echo "registry=$ECR_REGISTRY" >> $GITHUB_OUTPUT
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.ecr.outputs.registry }}
+
+      - name: Build Streamlit image
+        id: build
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          REGISTRY="${{ steps.ecr.outputs.registry }}"
+          SHORT_SHA="${{ github.sha }}".substring(0,7)
+          IMAGE_URI="$REGISTRY/$REPO_NAME:streamlit"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:streamlit-latest"
+          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:streamlit-${SHORT_SHA}"
+          docker build -f Dockerfile.streamlit -t "$IMAGE_URI" -t "$IMAGE_URI_LATEST" -t "$IMAGE_URI_COMMIT" .
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
+          echo "image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
+
+      - name: Push Streamlit image to ECR
+        run: |
+          docker push "${{ steps.build.outputs.image_uri }}"
+          docker push "${{ steps.build.outputs.image_uri_latest }}"
+          docker push "${{ steps.build.outputs.image_uri_commit }}"
+          echo "✓ Streamlit image pushed successfully"
+
+  # =========================================================================
+  # SEGMENT 3: BUILD & PUSH DATA INGESTION IMAGE (ACTIVE - For debugging)
+  # =========================================================================
+  build-and-push-data-ingestion:
+    name: Build & Push Data Ingestion Image to ECR
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Create ECR repository if not exists
         run: |
           REPO_NAME="${{ env.ECR_REPOSITORY }}"
           AWS_REGION="${{ secrets.AWS_REGION }}"
-          
-          # Check if repository exists
-          if aws ecr describe-repositories \
-            --repository-names "$REPO_NAME" \
-            --region "$AWS_REGION" 2>/dev/null; then
-            echo "status=exists" >> $GITHUB_OUTPUT
-            echo "✓ ECR Repository already exists: $REPO_NAME"
+          if ! aws ecr describe-repositories --repository-names "$REPO_NAME" --region "$AWS_REGION" 2>/dev/null; then
+            echo "Creating ECR repository: $REPO_NAME"
+            aws ecr create-repository --repository-name "$REPO_NAME" --region "$AWS_REGION" --image-scanning-configuration scanOnPush=true --encryption-configuration encryptionType=AES256
           else
-            echo "Creating new ECR repository: $REPO_NAME"
-            aws ecr create-repository \
-              --repository-name "$REPO_NAME" \
-              --region "$AWS_REGION" \
-              --image-scanning-configuration scanOnPush=true \
-              --encryption-configuration encryptionType=AES256
-            
-            # Set lifecycle policy to keep last 10 images
-            aws ecr put-lifecycle-policy \
-              --repository-name "$REPO_NAME" \
-              --lifecycle-policy-text '{
-                "rules": [
-                  {
-                    "rulePriority": 1,
-                    "description": "Keep last 10 images",
-                    "selection": {
-                      "tagStatus": "any",
-                      "countType": "imageCountMoreThan",
-                      "countNumber": 10
-                    },
-                    "action": {
-                      "type": "expire"
-                    }
-                  }
-                ]
-              }' \
-              --region "$AWS_REGION"
-            
-            echo "status=created" >> $GITHUB_OUTPUT
-            echo "✓ ECR Repository created successfully"
+            echo "✓ ECR repository already exists: $REPO_NAME"
           fi
-          
-          # Get ECR URI
-          ECR_REGISTRY=$(aws ecr describe-repositories \
-            --repository-names "$REPO_NAME" \
-            --region "$AWS_REGION" \
-            --query 'repositories[0].repositoryUri' \
-            --output text | cut -d'/' -f1)
-          
+
+      - name: Get ECR Registry
+        id: ecr
+        run: |
+          ECR_REGISTRY=$(aws ecr describe-repositories --repository-names "${{ env.ECR_REPOSITORY }}" --region "${{ secrets.AWS_REGION }}" --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
           echo "registry=$ECR_REGISTRY" >> $GITHUB_OUTPUT
           echo "ECR Registry: $ECR_REGISTRY"
 
-      # ===================================================================
-      # LOGIN TO ECR
-      # ===================================================================
       - name: Login to Amazon ECR
         run: |
-          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-            docker login --username AWS --password-stdin ${{ steps.ecr_repo.outputs.registry }}
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.ecr.outputs.registry }}
+          echo "✓ Logged in to ECR"
 
-      # ===================================================================
-      # BUILD FASTAPI DOCKER IMAGE
-      # ===================================================================
-      - name: Build FastAPI Docker image
-        id: docker_build_api
+      - name: Build Data Ingestion image
+        id: build
         run: |
           REPO_NAME="${{ env.ECR_REPOSITORY }}"
-          SERVICE_TAG="api"
-          AWS_REGION="${{ secrets.AWS_REGION }}"
-          REGISTRY="${{ steps.ecr_repo.outputs.registry }}"
-          COMMIT_SHA=${{ github.sha }}
+          REGISTRY="${{ steps.ecr.outputs.registry }}"
+          COMMIT_SHA="${{ github.sha }}"
           SHORT_SHA=${COMMIT_SHA:0:7}
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           
-          # Image URIs with service-based tags
-          IMAGE_URI="$REGISTRY/$REPO_NAME:$SERVICE_TAG"
-          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:$SERVICE_TAG-latest"
-          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SERVICE_TAG-$SHORT_SHA"
+          IMAGE_URI="$REGISTRY/$REPO_NAME:data-ingestion"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:data-ingestion-latest"
+          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:data-ingestion-$SHORT_SHA"
           
-          echo "📦 Building FastAPI Docker Image:"
+          echo "📦 Building Data Ingestion Docker Image"
           echo "  Repository: $REPO_NAME"
-          echo "  Service Tag: $SERVICE_TAG"
+          echo "  Service Tag: data-ingestion"
           echo "  Commit: $SHORT_SHA"
           echo "  Timestamp: $TIMESTAMP"
           
-          # Build image
           docker build \
-            --file Dockerfile.api \
-            --tag "$IMAGE_URI" \
-            --tag "$IMAGE_URI_LATEST" \
-            --tag "$IMAGE_URI_COMMIT" \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
-            --label "service=fastapi" \
-            --label "commit=$SHORT_SHA" \
-            --label "timestamp=$TIMESTAMP" \
-            .
-          
-          echo "api_image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-          echo "api_image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
-          echo "api_image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
-          echo "✓ FastAPI Docker image built successfully"
-
-      # ===================================================================
-      # BUILD STREAMLIT DOCKER IMAGE
-      # ===================================================================
-      - name: Build Streamlit Docker image
-        id: docker_build_streamlit
-        run: |
-          REPO_NAME="${{ env.ECR_REPOSITORY }}"
-          SERVICE_TAG="streamlit"
-          AWS_REGION="${{ secrets.AWS_REGION }}"
-          REGISTRY="${{ steps.ecr_repo.outputs.registry }}"
-          COMMIT_SHA=${{ github.sha }}
-          SHORT_SHA=${COMMIT_SHA:0:7}
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          
-          # Image URIs with service-based tags
-          IMAGE_URI="$REGISTRY/$REPO_NAME:$SERVICE_TAG"
-          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:$SERVICE_TAG-latest"
-          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SERVICE_TAG-$SHORT_SHA"
-          
-          echo "📦 Building Streamlit Docker Image:"
-          echo "  Repository: $REPO_NAME"
-          echo "  Service Tag: $SERVICE_TAG"
-          echo "  Commit: $SHORT_SHA"
-          echo "  Timestamp: $TIMESTAMP"
-          
-          # Build image
-          docker build \
-            --file Dockerfile.streamlit \
-            --tag "$IMAGE_URI" \
-            --tag "$IMAGE_URI_LATEST" \
-            --tag "$IMAGE_URI_COMMIT" \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
-            --label "service=streamlit" \
-            --label "commit=$SHORT_SHA" \
-            --label "timestamp=$TIMESTAMP" \
-            .
-          
-          echo "streamlit_image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-          echo "streamlit_image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
-          echo "streamlit_image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
-          echo "✓ Streamlit Docker image built successfully"
-
-      # ===================================================================
-      # BUILD DATA INGESTION DOCKER IMAGE
-      # ===================================================================
-      - name: Build Data Ingestion Docker image
-        id: docker_build_ingestion
-        run: |
-          REPO_NAME="${{ env.ECR_REPOSITORY }}"
-          SERVICE_TAG="data-ingestion"
-          AWS_REGION="${{ secrets.AWS_REGION }}"
-          REGISTRY="${{ steps.ecr_repo.outputs.registry }}"
-          COMMIT_SHA=${{ github.sha }}
-          SHORT_SHA=${COMMIT_SHA:0:7}
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          
-          # Image URIs with service-based tags
-          IMAGE_URI="$REGISTRY/$REPO_NAME:$SERVICE_TAG"
-          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:$SERVICE_TAG-latest"
-          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SERVICE_TAG-$SHORT_SHA"
-          
-          echo "📦 Building Data Ingestion Docker Image:"
-          echo "  Repository: $REPO_NAME"
-          echo "  Service Tag: $SERVICE_TAG"
-          echo "  Commit: $SHORT_SHA"
-          echo "  Timestamp: $TIMESTAMP"
-          
-          # Build image
-          docker build \
-            --file data_ingestion.Dockerfile \
-            --tag "$IMAGE_URI" \
-            --tag "$IMAGE_URI_LATEST" \
-            --tag "$IMAGE_URI_COMMIT" \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -f data_ingestion.Dockerfile \
+            -t "$IMAGE_URI" \
+            -t "$IMAGE_URI_LATEST" \
+            -t "$IMAGE_URI_COMMIT" \
             --label "service=data-ingestion" \
             --label "commit=$SHORT_SHA" \
             --label "timestamp=$TIMESTAMP" \
             .
           
-          echo "ingestion_image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-          echo "ingestion_image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
-          echo "ingestion_image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
+          echo "image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
           echo "✓ Data Ingestion Docker image built successfully"
-
-      # ===================================================================
-      # PUSH ALL DOCKER IMAGES TO ECR
-      # ===================================================================
-      - name: Push FastAPI image to ECR
-        run: |
-          echo "🚀 Pushing FastAPI image to ECR..."
-          docker push "${{ steps.docker_build_api.outputs.api_image_uri }}"
-          docker push "${{ steps.docker_build_api.outputs.api_image_uri_latest }}"
-          docker push "${{ steps.docker_build_api.outputs.api_image_uri_commit }}"
-          echo "✓ FastAPI image pushed successfully"
-
-      - name: Push Streamlit image to ECR
-        run: |
-          echo "🚀 Pushing Streamlit image to ECR..."
-          docker push "${{ steps.docker_build_streamlit.outputs.streamlit_image_uri }}"
-          docker push "${{ steps.docker_build_streamlit.outputs.streamlit_image_uri_latest }}"
-          docker push "${{ steps.docker_build_streamlit.outputs.streamlit_image_uri_commit }}"
-          echo "✓ Streamlit image pushed successfully"
 
       - name: Push Data Ingestion image to ECR
         run: |
           echo "🚀 Pushing Data Ingestion image to ECR..."
-          docker push "${{ steps.docker_build_ingestion.outputs.ingestion_image_uri }}"
-          docker push "${{ steps.docker_build_ingestion.outputs.ingestion_image_uri_latest }}"
-          docker push "${{ steps.docker_build_ingestion.outputs.ingestion_image_uri_commit }}"
+          docker push "${{ steps.build.outputs.image_uri }}"
+          docker push "${{ steps.build.outputs.image_uri_latest }}"
+          docker push "${{ steps.build.outputs.image_uri_commit }}"
           echo "✓ Data Ingestion image pushed successfully"
 
-  # =========================================================================
-  # STAGE 2: VERIFY IMAGES IN ECR
-  # =========================================================================
-  verify-ecr-deployment:
-    name: Verify ECR Images
-    needs: build-and-push-ecr
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      - name: Verify all images in ECR
+      - name: Verify image in ECR
         run: |
           REPO_NAME="${{ env.ECR_REPOSITORY }}"
           AWS_REGION="${{ secrets.AWS_REGION }}"
-          
-          echo "🔍 Verifying images in ECR repository: $REPO_NAME"
-          echo ""
-          
-          # List all images in repository
-          aws ecr describe-images \
-            --repository-name "$REPO_NAME" \
-            --region "$AWS_REGION" \
-            --query 'imageDetails[*].[imageTags[0],imageSizeInBytes,imagePushedAt]' \
-            --output table
-          
-          echo ""
-          echo "✓ All images verified successfully"
+          echo "🔍 Verifying Data Ingestion image in ECR repository: $REPO_NAME"
+          aws ecr describe-images --repository-name "$REPO_NAME" --region "$AWS_REGION" --query 'imageDetails[*].[imageTags[0],imageSizeInBytes,imagePushedAt]' --output table
+          echo "✓ Image verified successfully in ECR"
 
-# =========================================================================
-# REQUIRED GITHUB ACTION SECRETS (Access Key Based Authentication)
-# =========================================================================
+#=========================================================================
+# HOW TO USE THIS PIPELINE:
+#=========================================================================
 # 
-# AWS Credentials (Access Keys - NO OIDC):
-#   - AWS_REGION: e.g., "us-east-1"
-#   - AWS_ACCESS_KEY_ID: AWS access key
-#   - AWS_SECRET_ACCESS_KEY: AWS secret access key
+# Enable/Disable builds by changing the 'if' condition:
+# 
+# FastAPI builds:
+#   - Change: if: false  →  if: true  in build-and-push-fastapi job
+# 
+# Streamlit builds:
+#   - Change: if: false  →  if: true  in build-and-push-streamlit job
+# 
+# Data Ingestion (Always Active):
+#   - Pushes automatically with every commit to main
+#   - Currently debugging HTML parsing (html5lib addition)
 #
-# Application Secrets (for ECS deployment):
-#   - S3_BUCKET_NAME: e.g., "knowledge-rag-bucket"
+# Required GitHub Secrets:
+#   - AWS_REGION
+#   - AWS_ACCESS_KEY_ID
+#   - AWS_SECRET_ACCESS_KEY
+#
 #   - S3_DOCUMENT_PREFIX: e.g., "raw_data/aapl-20250927.html"
 #   - OPENAI_API_KEY: OpenAI API key for embeddings
 #   - PINECONE_API_KEY: Pinecone API key
