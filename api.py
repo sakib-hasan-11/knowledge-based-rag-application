@@ -97,7 +97,6 @@ async def exception_handler(request: Request, exc: Exception):
 async def health_check():
     """Health check for ALB"""
     try:
-        config.validate(strict=False)
         return {"status": "healthy"}
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")

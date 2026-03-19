@@ -13,7 +13,7 @@ jobs:
   # SEGMENT 1: BUILD & PUSH FASTAPI IMAGE (Currently DISABLED)
   # =========================================================================
   build-and-push-fastapi:
-    if: false  # Set to true to enable FastAPI builds
+    if: true  # Set to true to enable FastAPI builds
     name: Build & Push FastAPI Image to ECR
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -135,6 +135,7 @@ jobs:
   # SEGMENT 3: BUILD & PUSH DATA INGESTION IMAGE (ACTIVE - For debugging)
   # =========================================================================
   build-and-push-data-ingestion:
+    if: false  # Disabled - FastAPI only
     name: Build & Push Data Ingestion Image to ECR
     runs-on: ubuntu-latest
     timeout-minutes: 20
