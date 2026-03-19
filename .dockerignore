@@ -1,0 +1,41 @@
+# Virtual environment — never copy into image
+.venv/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Python byte-code and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Secrets — NEVER bake into image; pass via ECS task env vars or Secrets Manager
+.env
+*.env
+.env.*
+
+# Dev / test files
+tests/
+notebooks/
+test_*.py
+
+# Docs
+*.md
+CI_TESTING_GUIDE.md
+CODEBASE_OVERVIEW.md
+README.md
+LICENSE
+project_info.txt
+template.sh
+
+# Local output data (mounts or S3 in production)
+data/
+
+# IDE
+.vscode/
+.idea/

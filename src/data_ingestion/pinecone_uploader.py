@@ -147,7 +147,7 @@ class PineconeUploader:
                 self.logger.info(f"Index creation request sent")
 
                 # Wait for index to be ready
-                time.sleep(5)
+                time.sleep(10)
 
                 # Verify creation
                 max_retries = 10

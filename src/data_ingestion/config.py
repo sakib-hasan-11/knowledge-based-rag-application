@@ -50,7 +50,7 @@ class Config:
         # S3 Configuration
         # ============================================================================
         self.S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
-        self.S3_DOCUMENT_PREFIX = os.getenv("S3_DOCUMENT_PREFIX", "")
+        self.S3_DOCUMENT_PREFIX = os.getenv("S3_DOCUMENT_PREFIX", "raw_data/aapl-20250927.html")
 
         # ============================================================================
         # OpenAI Configuration
@@ -72,7 +72,7 @@ class Config:
         # Pinecone Configuration
         # ============================================================================
         self.PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-        self.PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "rag-documents")
+        self.PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "apple-rag-project")
         self.PINECONE_HOST = os.getenv(
             "PINECONE_HOST"
         )  # Required for actual data upsert

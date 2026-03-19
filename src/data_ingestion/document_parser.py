@@ -23,7 +23,10 @@ from .logging_config import create_logger
 
 # Target sections to extract from 10-K/10-Q documents
 TARGET_SECTIONS = {
-    "Item 1": {"full_name": "Business", "alias": ["item 1", "business"], "priority": 1},
+    "Item 1": {"full_name": "Business", 
+               "alias": ["item 1", "business"], 
+               "priority": 1},
+               
     "Item 1A": {
         "full_name": "Risk Factors",
         "alias": ["item 1a", "risk factors"],

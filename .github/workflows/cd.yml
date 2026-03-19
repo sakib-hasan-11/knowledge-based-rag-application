@@ -1,0 +1,426 @@
+name: RAG Application CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip running tests before deployment'
+        required: false
+        default: 'false'
+
+env:
+  PYTHON_VERSION: '3.11'
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
+  ECR_REPOSITORY: apple-knowledge-rag
+  IMAGE_TAG: data_ingestion
+
+jobs:
+  # =========================================================================
+  # STAGE 1: BUILD & PUSH DOCKER IMAGE TO ECR
+  # =========================================================================
+  build-and-push-ecr:
+    name: Build & Push Docker Image to ECR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ===================================================================
+      # VALIDATE REQUIRED SECRETS
+      # ===================================================================
+      - name: Validate required secrets
+        run: |
+          echo "🔍 Validating required GitHub secrets..."
+          
+          MISSING_SECRETS=()
+          
+          # Check required AWS secrets
+          if [ -z "${{ secrets.AWS_REGION }}" ]; then
+            MISSING_SECRETS+=("AWS_REGION")
+          fi
+          
+          if [ -z "${{ secrets.AWS_OIDC_ROLE_ARN }}" ] && [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            MISSING_SECRETS+=("AWS_OIDC_ROLE_ARN or AWS_ACCESS_KEY_ID")
+          fi
+          
+          # Check required S3 secret (no longer optional)
+          if [ -z "${{ secrets.S3_BUCKET_NAME }}" ]; then
+            MISSING_SECRETS+=("S3_BUCKET_NAME (REQUIRED - no default value)")
+          fi
+          
+          # Check required OpenAI secret
+          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+            MISSING_SECRETS+=("OPENAI_API_KEY")
+          fi
+          
+          # Check required Pinecone secrets
+          if [ -z "${{ secrets.PINECONE_API_KEY }}" ]; then
+            MISSING_SECRETS+=("PINECONE_API_KEY")
+          fi
+          
+          if [ -z "${{ secrets.PINECONE_HOST }}" ]; then
+            MISSING_SECRETS+=("PINECONE_HOST")
+          fi
+          
+          # Report results
+          if [ ${#MISSING_SECRETS[@]} -eq 0 ]; then
+            echo "✓ All required secrets are configured"
+          else
+            echo "❌ Missing required secrets:"
+            for secret in "${MISSING_SECRETS[@]}"; do
+              echo "  - $secret"
+            done
+            echo ""
+            echo "📖 See CD_PIPELINE_SETUP.md for setup instructions"
+            exit 1
+          fi
+
+      # ===================================================================
+      # AWS AUTHENTICATION - Using OIDC Token (More Secure)
+      # ===================================================================
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Alternative: Using Access Keys (Less Secure - Keep OIDC approach above)
+      # Uncomment below if OIDC is not available
+      # - name: Configure AWS credentials using Access Keys
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #     aws-region: ${{ secrets.AWS_REGION }}
+
+      # ===================================================================
+      # CREATE ECR REPOSITORY IF IT DOESN'T EXIST
+      # ===================================================================
+      - name: Create ECR Repository if not exists
+        id: ecr_repo
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          
+          # Check if repository exists
+          if aws ecr describe-repositories \
+            --repository-names "$REPO_NAME" \
+            --region "$AWS_REGION" 2>/dev/null; then
+            echo "status=exists" >> $GITHUB_OUTPUT
+            echo "✓ ECR Repository already exists: $REPO_NAME"
+          else
+            echo "Creating new ECR repository: $REPO_NAME"
+            aws ecr create-repository \
+              --repository-name "$REPO_NAME" \
+              --region "$AWS_REGION" \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES
+            
+            # Set lifecycle policy to keep last 10 images
+            aws ecr put-lifecycle-policy \
+              --repository-name "$REPO_NAME" \
+              --lifecycle-policy-text '{
+                "rules": [
+                  {
+                    "rulePriority": 1,
+                    "description": "Keep last 10 images",
+                    "selection": {
+                      "tagStatus": "any",
+                      "countType": "imageCountMoreThan",
+                      "countNumber": 10
+                    },
+                    "action": {
+                      "type": "expire"
+                    }
+                  }
+                ]
+              }' \
+              --region "$AWS_REGION"
+            
+            echo "status=created" >> $GITHUB_OUTPUT
+            echo "✓ ECR Repository created successfully"
+          fi
+          
+          # Get ECR URI
+          ECR_REGISTRY=$(aws ecr describe-repositories \
+            --repository-names "$REPO_NAME" \
+            --region "$AWS_REGION" \
+            --query 'repositories[0].repositoryUri' \
+            --output text | cut -d'/' -f1)
+          
+          echo "registry=$ECR_REGISTRY" >> $GITHUB_OUTPUT
+          echo "ECR Registry: $ECR_REGISTRY"
+
+      # ===================================================================
+      # LOGIN TO ECR
+      # ===================================================================
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ steps.ecr_repo.outputs.registry }}
+
+      # ===================================================================
+      # BUILD DOCKER IMAGE
+      # ===================================================================
+      - name: Build Docker image
+        id: docker_build
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          REGISTRY="${{ steps.ecr_repo.outputs.registry }}"
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          COMMIT_SHA=${{ github.sha }}
+          SHORT_SHA=${COMMIT_SHA:0:7}
+          
+          # Full image name
+          IMAGE_URI="$REGISTRY/$REPO_NAME:$IMAGE_TAG"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:latest"
+          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SHORT_SHA"
+          
+          echo "📦 Building Docker Image:"
+          echo "  Repository: $REPO_NAME"
+          echo "  Registry: $REGISTRY"
+          echo "  Tag: $IMAGE_TAG"
+          echo "  Commit: $SHORT_SHA"
+          echo "  Timestamp: $TIMESTAMP"
+          
+          # Build image
+          docker build \
+            --file data_ingestion.Dockerfile \
+            --tag "$IMAGE_URI" \
+            --tag "$IMAGE_URI_LATEST" \
+            --tag "$IMAGE_URI_COMMIT" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --label "repository=$REPO_NAME" \
+            --label "tag=$IMAGE_TAG" \
+            --label "commit=$SHORT_SHA" \
+            --label "timestamp=$TIMESTAMP" \
+            --label "github_workflow=${{ github.workflow }}" \
+            .
+          
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
+          echo "image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
+          echo "✓ Docker image built successfully"
+
+      # ===================================================================
+      # SCAN DOCKER IMAGE FOR VULNERABILITIES
+      # ===================================================================
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.docker_build.outputs.image_uri }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-docker-scan'
+
+      # ===================================================================
+      # PUSH DOCKER IMAGE TO ECR
+      # ===================================================================
+      - name: Push Docker image to ECR
+        run: |
+          IMAGE_URI="${{ steps.docker_build.outputs.image_uri }}"
+          IMAGE_URI_LATEST="${{ steps.docker_build.outputs.image_uri_latest }}"
+          IMAGE_URI_COMMIT="${{ steps.docker_build.outputs.image_uri_commit }}"
+          
+          echo "🚀 Pushing Docker image to ECR..."
+          echo "  Tag (data_ingestion): $IMAGE_URI"
+          echo "  Tag (latest): $IMAGE_URI_LATEST"
+          echo "  Tag (commit): $IMAGE_URI_COMMIT"
+          
+          docker push "$IMAGE_URI"
+          docker push "$IMAGE_URI_LATEST"
+          docker push "$IMAGE_URI_COMMIT"
+          
+          echo "✓ Docker image pushed successfully"
+          echo ""
+          echo "📍 Image pushed to:"
+          echo "  - $IMAGE_URI"
+          echo "  - $IMAGE_URI_LATEST"
+          echo "  - $IMAGE_URI_COMMIT"
+
+      # ===================================================================
+      # GET IMAGE DIGEST & SIZE
+      # ===================================================================
+      - name: Get image digest and size
+        id: image_info
+        run: |
+          IMAGE_URI="${{ steps.docker_build.outputs.image_uri }}"
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          
+          # Get image details from ECR
+          IMAGE_DETAILS=$(aws ecr describe-images \
+            --repository-name "$REPO_NAME" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].[imageDigest,imageSizeInBytes,imagePushedAt]' \
+            --output json)
+          
+          DIGEST=$(echo "$IMAGE_DETAILS" | jq -r '.[0]')
+          SIZE_BYTES=$(echo "$IMAGE_DETAILS" | jq -r '.[1]')
+          PUSHED_AT=$(echo "$IMAGE_DETAILS" | jq -r '.[2]')
+          
+          # Convert to human-readable size
+          SIZE_MB=$(echo "scale=2; $SIZE_BYTES / 1024 / 1024" | bc)
+          
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
+          echo "pushed_at=$PUSHED_AT" >> $GITHUB_OUTPUT
+          
+          echo "Image Digest: $DIGEST"
+          echo "Image Size: ${SIZE_MB}MB"
+          echo "Pushed At: $PUSHED_AT"
+
+      # ===================================================================
+      # POST DEPLOYMENT SUMMARY
+      # ===================================================================
+      - name: Deployment Summary
+        id: summary
+        run: |
+          cat > /tmp/deployment_summary.md << 'EOF'
+          # 🚀 Docker Image Deployment Summary
+          
+          ## Image Information
+          - **Repository**: ${{ env.ECR_REPOSITORY }}
+          - **Registry**: ${{ steps.ecr_repo.outputs.registry }}
+          - **Tag**: ${{ env.IMAGE_TAG }}
+          - **Commit**: ${{ github.sha }}
+          - **Timestamp**: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          
+          ## Image URIs
+          - **data_ingestion tag**: ${{ steps.docker_build.outputs.image_uri }}
+          - **latest tag**: ${{ steps.docker_build.outputs.image_uri_latest }}
+          - **commit tag**: ${{ steps.docker_build.outputs.image_uri_commit }}
+          
+          ## Image Details
+          - **Digest**: ${{ steps.image_info.outputs.digest }}
+          - **Size**: ${{ steps.image_info.outputs.size_mb }}MB
+          - **Pushed At**: ${{ steps.image_info.outputs.pushed_at }}
+          
+          ## Dockerfile
+          - **File**: `data_ingestion.Dockerfile`
+          - **Base Image**: `python:3.10-slim`
+          
+          ## Repository Status
+          - **Status**: ${{ steps.ecr_repo.outputs.status }}
+          - **Region**: ${{ secrets.AWS_REGION }}
+          
+          ## Next Steps
+          1. Deploy using ECS Task Definition
+          2. Configure environment variables (see secrets below)
+          3. Monitor CloudWatch logs
+          
+          EOF
+          
+          cat /tmp/deployment_summary.md
+
+      - name: Comment PR with Deployment Info
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('/tmp/deployment_summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+  # =========================================================================
+  # STAGE 2: VERIFY DEPLOYMENT TO ECR
+  # =========================================================================
+  verify-ecr-deployment:
+    name: Verify ECR Deployment
+    needs: build-and-push-ecr
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Verify image in ECR
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          
+          echo "🔍 Verifying image in ECR..."
+          
+          # List all images in repository
+          aws ecr describe-images \
+            --repository-name "$REPO_NAME" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[*].[imageTags,imagePushedAt,imageSizeInBytes]' \
+            --output table
+          
+          # Verify specific tag exists
+          if aws ecr describe-images \
+            --repository-name "$REPO_NAME" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" &>&1; then
+            echo "✓ Image with tag '$IMAGE_TAG' verified successfully"
+          else
+            echo "✗ Image with tag '$IMAGE_TAG' not found"
+            exit 1
+          fi
+
+      - name: Check image scan status
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          
+          echo "🔎 Checking image scan status..."
+          
+          SCAN_STATUS=$(aws ecr describe-image-scan-findings \
+            --repository-name "$REPO_NAME" \
+            --image-id imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageScanStatus.status' \
+            --output text)
+          
+          echo "Scan Status: $SCAN_STATUS"
+
+# =========================================================================
+# REQUIRED GITHUB ACTION SECRETS
+# =========================================================================
+# 
+# AWS Configuration:
+#   - AWS_REGION: e.g., "us-east-1"
+#   - AWS_OIDC_ROLE_ARN: OIDC role ARN for GitHub Actions
+#     (or use AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY if OIDC not available)
+#
+# Data Ingestion Pipeline Secrets (for optional ECS deployment):
+#   - AWS_ACCESS_KEY_ID: AWS access key (if not using OIDC)
+#   - AWS_SECRET_ACCESS_KEY: AWS secret (if not using OIDC)
+#   - S3_BUCKET_NAME: e.g., "knowledge-rag-bucket"
+#   - S3_DOCUMENT_PREFIX: e.g., "raw_data/aapl-20250927.html"
+#   - OPENAI_API_KEY: OpenAI API key for embeddings
+#   - PINECONE_API_KEY: Pinecone API key
+#   - PINECONE_HOST: Pinecone host URL
+#   - PINECONE_INDEX_NAME: e.g., "rag-documents"
+#   - PINECONE_ENVIRONMENT: e.g., "us-east-1"
+#   - PINECONE_METRIC: e.g., "cosine"
