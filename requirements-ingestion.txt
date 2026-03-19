@@ -24,7 +24,7 @@ pinecone==8.1.0
 
 # Sparse vector generation (BM25)
 rank-bm25==0.2.2
-numpy==2.4.3
+numpy==2.2.4
 
 # Configuration & logging
 python-dotenv==1.2.2
