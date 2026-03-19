@@ -127,7 +127,7 @@ jobs:
               --repository-name "$REPO_NAME" \
               --region "$AWS_REGION" \
               --image-scanning-configuration scanOnPush=true \
-              --encryption-configuration encryptionType=AES
+              --encryption-configuration encryptionType=AES256
             
             # Set lifecycle policy to keep last 10 images
             aws ecr put-lifecycle-policy \
