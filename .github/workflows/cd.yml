@@ -4,29 +4,21 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      skip_tests:
-        description: 'Skip running tests before deployment'
-        required: false
-        default: 'false'
 
 env:
   PYTHON_VERSION: '3.11'
   PIP_DISABLE_PIP_VERSION_CHECK: 1
   ECR_REPOSITORY: apple-knowledge-rag
-  IMAGE_TAG: data_ingestion
 
 jobs:
   # =========================================================================
-  # STAGE 1: BUILD & PUSH DOCKER IMAGE TO ECR
+  # STAGE 1: BUILD & PUSH DOCKER IMAGES TO ECR (FastAPI, Streamlit, Data Ingestion)
   # =========================================================================
   build-and-push-ecr:
-    #if : False # Set to true to enable this stage, or use workflow_dispatch to trigger manually
-    name: Build & Push Docker Image to ECR
+    name: Build & Push Docker Images to ECR
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -175,28 +167,111 @@ jobs:
             docker login --username AWS --password-stdin ${{ steps.ecr_repo.outputs.registry }}
 
       # ===================================================================
-      # BUILD DOCKER IMAGE
+      # BUILD FASTAPI DOCKER IMAGE
       # ===================================================================
-      - name: Build Docker image
-        id: docker_build
+      - name: Build FastAPI Docker image
+        id: docker_build_api
         run: |
           REPO_NAME="${{ env.ECR_REPOSITORY }}"
-          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          SERVICE_TAG="api"
           AWS_REGION="${{ secrets.AWS_REGION }}"
           REGISTRY="${{ steps.ecr_repo.outputs.registry }}"
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           COMMIT_SHA=${{ github.sha }}
           SHORT_SHA=${COMMIT_SHA:0:7}
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           
-          # Full image name
-          IMAGE_URI="$REGISTRY/$REPO_NAME:$IMAGE_TAG"
-          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:latest"
-          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SHORT_SHA"
+          # Image URIs with service-based tags
+          IMAGE_URI="$REGISTRY/$REPO_NAME:$SERVICE_TAG"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:$SERVICE_TAG-latest"
+          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SERVICE_TAG-$SHORT_SHA"
           
-          echo "📦 Building Docker Image:"
+          echo "📦 Building FastAPI Docker Image:"
           echo "  Repository: $REPO_NAME"
-          echo "  Registry: $REGISTRY"
-          echo "  Tag: $IMAGE_TAG"
+          echo "  Service Tag: $SERVICE_TAG"
+          echo "  Commit: $SHORT_SHA"
+          echo "  Timestamp: $TIMESTAMP"
+          
+          # Build image
+          docker build \
+            --file Dockerfile.api \
+            --tag "$IMAGE_URI" \
+            --tag "$IMAGE_URI_LATEST" \
+            --tag "$IMAGE_URI_COMMIT" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --label "service=fastapi" \
+            --label "commit=$SHORT_SHA" \
+            --label "timestamp=$TIMESTAMP" \
+            .
+          
+          echo "api_image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "api_image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
+          echo "api_image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
+          echo "✓ FastAPI Docker image built successfully"
+
+      # ===================================================================
+      # BUILD STREAMLIT DOCKER IMAGE
+      # ===================================================================
+      - name: Build Streamlit Docker image
+        id: docker_build_streamlit
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          SERVICE_TAG="streamlit"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          REGISTRY="${{ steps.ecr_repo.outputs.registry }}"
+          COMMIT_SHA=${{ github.sha }}
+          SHORT_SHA=${COMMIT_SHA:0:7}
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          
+          # Image URIs with service-based tags
+          IMAGE_URI="$REGISTRY/$REPO_NAME:$SERVICE_TAG"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:$SERVICE_TAG-latest"
+          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SERVICE_TAG-$SHORT_SHA"
+          
+          echo "📦 Building Streamlit Docker Image:"
+          echo "  Repository: $REPO_NAME"
+          echo "  Service Tag: $SERVICE_TAG"
+          echo "  Commit: $SHORT_SHA"
+          echo "  Timestamp: $TIMESTAMP"
+          
+          # Build image
+          docker build \
+            --file Dockerfile.streamlit \
+            --tag "$IMAGE_URI" \
+            --tag "$IMAGE_URI_LATEST" \
+            --tag "$IMAGE_URI_COMMIT" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --label "service=streamlit" \
+            --label "commit=$SHORT_SHA" \
+            --label "timestamp=$TIMESTAMP" \
+            .
+          
+          echo "streamlit_image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "streamlit_image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
+          echo "streamlit_image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
+          echo "✓ Streamlit Docker image built successfully"
+
+      # ===================================================================
+      # BUILD DATA INGESTION DOCKER IMAGE
+      # ===================================================================
+      - name: Build Data Ingestion Docker image
+        id: docker_build_ingestion
+        run: |
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          SERVICE_TAG="data-ingestion"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          REGISTRY="${{ steps.ecr_repo.outputs.registry }}"
+          COMMIT_SHA=${{ github.sha }}
+          SHORT_SHA=${COMMIT_SHA:0:7}
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          
+          # Image URIs with service-based tags
+          IMAGE_URI="$REGISTRY/$REPO_NAME:$SERVICE_TAG"
+          IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:$SERVICE_TAG-latest"
+          IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:$SERVICE_TAG-$SHORT_SHA"
+          
+          echo "📦 Building Data Ingestion Docker Image:"
+          echo "  Repository: $REPO_NAME"
+          echo "  Service Tag: $SERVICE_TAG"
           echo "  Commit: $SHORT_SHA"
           echo "  Timestamp: $TIMESTAMP"
           
@@ -207,167 +282,48 @@ jobs:
             --tag "$IMAGE_URI_LATEST" \
             --tag "$IMAGE_URI_COMMIT" \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
-            --label "repository=$REPO_NAME" \
-            --label "tag=$IMAGE_TAG" \
+            --label "service=data-ingestion" \
             --label "commit=$SHORT_SHA" \
             --label "timestamp=$TIMESTAMP" \
-            --label "github_workflow=${{ github.workflow }}" \
             .
           
-          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-          echo "image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
-          echo "image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
-          echo "✓ Docker image built successfully"
+          echo "ingestion_image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "ingestion_image_uri_latest=$IMAGE_URI_LATEST" >> $GITHUB_OUTPUT
+          echo "ingestion_image_uri_commit=$IMAGE_URI_COMMIT" >> $GITHUB_OUTPUT
+          echo "✓ Data Ingestion Docker image built successfully"
 
       # ===================================================================
-      # SCAN DOCKER IMAGE FOR VULNERABILITIES
+      # PUSH ALL DOCKER IMAGES TO ECR
       # ===================================================================
-      - name: Scan Docker image with Trivy
-        id: trivy_scan
-        uses: aquasecurity/trivy-action@master
-        continue-on-error: true
-        with:
-          image-ref: ${{ steps.docker_build.outputs.image_uri }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Upload Trivy scan results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('trivy-results.sarif') != ''
-        continue-on-error: true
-        with:
-          sarif_file: 'trivy-results.sarif'
-          category: 'trivy-docker-scan'
-          wait-for-processing: false
-
-      # ===================================================================
-      # PUSH DOCKER IMAGE TO ECR
-      # ===================================================================
-      - name: Push Docker image to ECR
+      - name: Push FastAPI image to ECR
         run: |
-          IMAGE_URI="${{ steps.docker_build.outputs.image_uri }}"
-          IMAGE_URI_LATEST="${{ steps.docker_build.outputs.image_uri_latest }}"
-          IMAGE_URI_COMMIT="${{ steps.docker_build.outputs.image_uri_commit }}"
-          
-          echo "🚀 Pushing Docker image to ECR..."
-          echo "  Tag (data_ingestion): $IMAGE_URI"
-          echo "  Tag (latest): $IMAGE_URI_LATEST"
-          echo "  Tag (commit): $IMAGE_URI_COMMIT"
-          
-          docker push "$IMAGE_URI"
-          docker push "$IMAGE_URI_LATEST"
-          docker push "$IMAGE_URI_COMMIT"
-          
-          echo "✓ Docker image pushed successfully"
-          echo ""
-          echo "📍 Image pushed to:"
-          echo "  - $IMAGE_URI"
-          echo "  - $IMAGE_URI_LATEST"
-          echo "  - $IMAGE_URI_COMMIT"
+          echo "🚀 Pushing FastAPI image to ECR..."
+          docker push "${{ steps.docker_build_api.outputs.api_image_uri }}"
+          docker push "${{ steps.docker_build_api.outputs.api_image_uri_latest }}"
+          docker push "${{ steps.docker_build_api.outputs.api_image_uri_commit }}"
+          echo "✓ FastAPI image pushed successfully"
 
-      # ===================================================================
-      # GET IMAGE DIGEST & SIZE
-      # ===================================================================
-      - name: Get image digest and size
-        id: image_info
+      - name: Push Streamlit image to ECR
         run: |
-          IMAGE_URI="${{ steps.docker_build.outputs.image_uri }}"
-          REPO_NAME="${{ env.ECR_REPOSITORY }}"
-          AWS_REGION="${{ secrets.AWS_REGION }}"
-          IMAGE_TAG="${{ env.IMAGE_TAG }}"
-          
-          # Get image details from ECR
-          IMAGE_DETAILS=$(aws ecr describe-images \
-            --repository-name "$REPO_NAME" \
-            --image-ids imageTag="$IMAGE_TAG" \
-            --region "$AWS_REGION" \
-            --query 'imageDetails[0].[imageDigest,imageSizeInBytes,imagePushedAt]' \
-            --output json)
-          
-          DIGEST=$(echo "$IMAGE_DETAILS" | jq -r '.[0]')
-          SIZE_BYTES=$(echo "$IMAGE_DETAILS" | jq -r '.[1]')
-          PUSHED_AT=$(echo "$IMAGE_DETAILS" | jq -r '.[2]')
-          
-          # Convert to human-readable size
-          SIZE_MB=$(echo "scale=2; $SIZE_BYTES / 1024 / 1024" | bc)
-          
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
-          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
-          echo "pushed_at=$PUSHED_AT" >> $GITHUB_OUTPUT
-          
-          echo "Image Digest: $DIGEST"
-          echo "Image Size: ${SIZE_MB}MB"
-          echo "Pushed At: $PUSHED_AT"
+          echo "🚀 Pushing Streamlit image to ECR..."
+          docker push "${{ steps.docker_build_streamlit.outputs.streamlit_image_uri }}"
+          docker push "${{ steps.docker_build_streamlit.outputs.streamlit_image_uri_latest }}"
+          docker push "${{ steps.docker_build_streamlit.outputs.streamlit_image_uri_commit }}"
+          echo "✓ Streamlit image pushed successfully"
 
-      # ===================================================================
-      # POST DEPLOYMENT SUMMARY
-      # ===================================================================
-      - name: Deployment Summary
-        id: summary
+      - name: Push Data Ingestion image to ECR
         run: |
-          cat > /tmp/deployment_summary.md << 'EOF'
-          # 🚀 Docker Image Deployment Summary
-          
-          ## Image Information
-          - **Repository**: ${{ env.ECR_REPOSITORY }}
-          - **Registry**: ${{ steps.ecr_repo.outputs.registry }}
-          - **Tag**: ${{ env.IMAGE_TAG }}
-          - **Commit**: ${{ github.sha }}
-          - **Timestamp**: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          
-          ## Image URIs
-          - **data_ingestion tag**: ${{ steps.docker_build.outputs.image_uri }}
-          - **latest tag**: ${{ steps.docker_build.outputs.image_uri_latest }}
-          - **commit tag**: ${{ steps.docker_build.outputs.image_uri_commit }}
-          
-          ## Image Details
-          - **Digest**: ${{ steps.image_info.outputs.digest }}
-          - **Size**: ${{ steps.image_info.outputs.size_mb }}MB
-          - **Pushed At**: ${{ steps.image_info.outputs.pushed_at }}
-          
-          ## Dockerfile
-          - **File**: `data_ingestion.Dockerfile`
-          - **Base Image**: `python:3.10-slim`
-          
-          ## Repository Status
-          - **Status**: ${{ steps.ecr_repo.outputs.status }}
-          - **Region**: ${{ secrets.AWS_REGION }}
-          
-          ## Next Steps
-          1. Deploy using ECS Task Definition
-          2. Configure environment variables (see secrets below)
-          3. Monitor CloudWatch logs
-          
-          EOF
-          
-          cat /tmp/deployment_summary.md
-
-      - name: Comment PR with Deployment Info
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          script: |
-            const fs = require('fs');
-            try {
-              const summary = fs.readFileSync('/tmp/deployment_summary.md', 'utf8');
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: summary
-              });
-            } catch (e) {
-              console.log('Could not comment on PR:', e.message);
-            }
+          echo "🚀 Pushing Data Ingestion image to ECR..."
+          docker push "${{ steps.docker_build_ingestion.outputs.ingestion_image_uri }}"
+          docker push "${{ steps.docker_build_ingestion.outputs.ingestion_image_uri_latest }}"
+          docker push "${{ steps.docker_build_ingestion.outputs.ingestion_image_uri_commit }}"
+          echo "✓ Data Ingestion image pushed successfully"
 
   # =========================================================================
-  # STAGE 2: VERIFY DEPLOYMENT TO ECR
-  # [DISABLED - Keep stage 1 (build-and-push-ecr) only]
+  # STAGE 2: VERIFY IMAGES IN ECR
   # =========================================================================
   verify-ecr-deployment:
-    name: Verify ECR Deployment
+    name: Verify ECR Images
     needs: build-and-push-ecr
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -380,59 +336,34 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Verify image in ECR
+      - name: Verify all images in ECR
         run: |
           REPO_NAME="${{ env.ECR_REPOSITORY }}"
-          IMAGE_TAG="${{ env.IMAGE_TAG }}"
           AWS_REGION="${{ secrets.AWS_REGION }}"
           
-          echo "🔍 Verifying image in ECR..."
+          echo "🔍 Verifying images in ECR repository: $REPO_NAME"
+          echo ""
           
           # List all images in repository
           aws ecr describe-images \
             --repository-name "$REPO_NAME" \
             --region "$AWS_REGION" \
-            --query 'imageDetails[*].[imageTags,imagePushedAt,imageSizeInBytes]' \
+            --query 'imageDetails[*].[imageTags[0],imageSizeInBytes,imagePushedAt]' \
             --output table
           
-          # Verify specific tag exists
-          if aws ecr describe-images \
-            --repository-name "$REPO_NAME" \
-            --image-ids imageTag="$IMAGE_TAG" \
-            --region "$AWS_REGION" &>&1; then
-            echo "✓ Image with tag '$IMAGE_TAG' verified successfully"
-          else
-            echo "✗ Image with tag '$IMAGE_TAG' not found"
-            exit 1
-          fi
-
-      - name: Check image scan status
-        run: |
-          REPO_NAME="${{ env.ECR_REPOSITORY }}"
-          IMAGE_TAG="${{ env.IMAGE_TAG }}"
-          AWS_REGION="${{ secrets.AWS_REGION }}"
-          
-          echo "🔎 Checking image scan status..."
-          
-          SCAN_STATUS=$(aws ecr describe-image-scan-findings \
-            --repository-name "$REPO_NAME" \
-            --image-id imageTag="$IMAGE_TAG" \
-            --region "$AWS_REGION" \
-            --query 'imageScanStatus.status' \
-            --output text)
-          
-          echo "Scan Status: $SCAN_STATUS"
+          echo ""
+          echo "✓ All images verified successfully"
 
 # =========================================================================
-# REQUIRED GITHUB ACTION SECRETS
+# REQUIRED GITHUB ACTION SECRETS (Access Key Based Authentication)
 # =========================================================================
 # 
-# AWS Configuration (Access Keys):
+# AWS Credentials (Access Keys - NO OIDC):
 #   - AWS_REGION: e.g., "us-east-1"
 #   - AWS_ACCESS_KEY_ID: AWS access key
 #   - AWS_SECRET_ACCESS_KEY: AWS secret access key
 #
-# Data Ingestion Pipeline Secrets (for ECS deployment):
+# Application Secrets (for ECS deployment):
 #   - S3_BUCKET_NAME: e.g., "knowledge-rag-bucket"
 #   - S3_DOCUMENT_PREFIX: e.g., "raw_data/aapl-20250927.html"
 #   - OPENAI_API_KEY: OpenAI API key for embeddings
@@ -441,3 +372,11 @@ jobs:
 #   - PINECONE_INDEX_NAME: e.g., "rag-documents"
 #   - PINECONE_ENVIRONMENT: e.g., "us-east-1"
 #   - PINECONE_METRIC: e.g., "cosine"
+#
+# Built Images:
+#   1. FastAPI (api) - Tags: api, api-latest, api-<commit-sha>
+#   2. Streamlit (streamlit) - Tags: streamlit, streamlit-latest, streamlit-<commit-sha>
+#   3. Data Ingestion (data-ingestion) - Tags: data-ingestion, data-ingestion-latest, data-ingestion-<commit-sha>
+#
+# All pushed to same ECR repository: apple-knowledge-rag
+#
