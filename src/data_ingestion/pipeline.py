@@ -343,6 +343,7 @@ class DataIngestionPipeline:
                         "has_sparse": len(sparse_vec) > 0,
                         "sparse_dim": len(sparse_vec),
                         "uploaded_at": datetime.now().isoformat(),
+                        "text_preview": embed_data.get("text_preview", ""),
                     }
 
                     # Create hybrid vector record

@@ -13,7 +13,7 @@ jobs:
   # SEGMENT 1: BUILD & PUSH FASTAPI IMAGE (Currently DISABLED)
   # =========================================================================
   build-and-push-fastapi:
-    if: false  # Set to true to enable FastAPI builds
+    if: true  # FastAPI builds ENABLED for ECR
     name: Build & Push FastAPI Image to ECR
     runs-on: ubuntu-latest
     timeout-minutes: 20

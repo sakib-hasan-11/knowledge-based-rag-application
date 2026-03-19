@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: rag-api-local
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-rag-documents}
+      - PINECONE_HOST=${PINECONE_HOST}
+      - HOST_API=http://api:8000
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+    networks:
+      - rag-network
+
+  # Streamlit Frontend
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: rag-streamlit-local
+    ports:
+      - "8501:8501"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-rag-documents}
+      - PINECONE_HOST=${PINECONE_HOST}
+      - HOST_API=http://api:8000
+    depends_on:
+      - api
+    volumes:
+      - .:/app
+    networks:
+      - rag-network
+
+networks:
+  rag-network:
+    driver: bridge

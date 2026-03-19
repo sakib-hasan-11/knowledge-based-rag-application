@@ -415,6 +415,43 @@ class ConversationMemoryManager:
             self.logger.error(f"Error saving to S3: {str(e)}")
             return False
 
+    def load_session_from_s3(self, session_id: str) -> bool:
+        """
+        Load previous session from S3.
+
+        Args:
+            session_id: UUID of session to load
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.s3_client:
+            self.logger.warning("S3 client not available, skipping load")
+            return False
+
+        try:
+            key = f"chat-history/{session_id}/session.json"
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
+            session_data = json.loads(response["Body"].read().decode("utf-8"))
+
+            self.session_id = session_data["session_id"]
+            self.summary = session_data.get("summary", "")
+            self.conversation_buffer = session_data.get("interactions", [])[
+                -self.max_window :
+            ]
+
+            self.logger.info(
+                f"Session loaded from S3",
+                {
+                    "session_id": session_id,
+                    "interactions_loaded": len(self.conversation_buffer),
+                },
+            )
+            return True
+        except Exception as e:
+            self.logger.warning(f"Error loading session from S3: {str(e)}")
+            return False
+
 
 class ChainOfThoughtReasoner:
     """Generates step-by-step reasoning for complex queries."""
