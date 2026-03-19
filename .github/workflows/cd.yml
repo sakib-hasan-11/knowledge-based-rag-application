@@ -21,6 +21,7 @@ jobs:
   # STAGE 1: BUILD & PUSH DOCKER IMAGE TO ECR
   # =========================================================================
   build-and-push-ecr:
+    #if : False # Set to true to enable this stage, or use workflow_dispatch to trigger manually
     name: Build & Push Docker Image to ECR
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -366,7 +367,6 @@ jobs:
   # [DISABLED - Keep stage 1 (build-and-push-ecr) only]
   # =========================================================================
   verify-ecr-deployment:
-    if: false
     name: Verify ECR Deployment
     needs: build-and-push-ecr
     runs-on: ubuntu-latest
