@@ -16,6 +16,7 @@ boto3
 
 # Required for HTML parsing
 beautifulsoup4
+html5lib
 
 # Required for sparse vector generation (BM25)
 rank-bm25
