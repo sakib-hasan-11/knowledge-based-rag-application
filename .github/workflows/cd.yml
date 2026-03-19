@@ -54,7 +54,8 @@ jobs:
         run: |
           REPO_NAME="${{ env.ECR_REPOSITORY }}"
           REGISTRY="${{ steps.ecr.outputs.registry }}"
-          SHORT_SHA="${{ github.sha }}".substring(0,7)
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA=${COMMIT_SHA:0:7}
           IMAGE_URI="$REGISTRY/$REPO_NAME:api"
           IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:api-latest"
           IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:api-${SHORT_SHA}"
@@ -115,7 +116,8 @@ jobs:
         run: |
           REPO_NAME="${{ env.ECR_REPOSITORY }}"
           REGISTRY="${{ steps.ecr.outputs.registry }}"
-          SHORT_SHA="${{ github.sha }}".substring(0,7)
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA=${COMMIT_SHA:0:7}
           IMAGE_URI="$REGISTRY/$REPO_NAME:streamlit"
           IMAGE_URI_LATEST="$REGISTRY/$REPO_NAME:streamlit-latest"
           IMAGE_URI_COMMIT="$REGISTRY/$REPO_NAME:streamlit-${SHORT_SHA}"
