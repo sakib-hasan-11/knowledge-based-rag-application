@@ -13,7 +13,7 @@ jobs:
   # SEGMENT 1: BUILD & PUSH FASTAPI IMAGE (Currently DISABLED)
   # =========================================================================
   build-and-push-fastapi:
-    if: true  # Set to true to enable FastAPI builds
+    if: false  # Set to true to enable FastAPI builds
     name: Build & Push FastAPI Image to ECR
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -75,7 +75,6 @@ jobs:
   # SEGMENT 2: BUILD & PUSH STREAMLIT IMAGE (Currently DISABLED)
   # =========================================================================
   build-and-push-streamlit:
-    if: false  # Set to true to enable Streamlit builds
     name: Build & Push Streamlit Image to ECR
     runs-on: ubuntu-latest
     timeout-minutes: 20

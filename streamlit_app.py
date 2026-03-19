@@ -17,7 +17,7 @@ import streamlit as st
 # ============================================================================
 st.set_page_config(
     page_title="RAG Query UI",
-    page_icon="🤖",
+    page_icon="",
     layout="wide",
 )
 
@@ -89,9 +89,9 @@ with st.sidebar:
 
     api_healthy = check_api_health()
     if api_healthy:
-        st.success("✅ API Online", icon="✓")
+        st.success("API Online")
     else:
-        st.error("❌ API Offline", icon="✗")
+        st.error("API Offline")
 
     st.markdown(f"**Host:** {HOST_API}")
 
@@ -100,20 +100,20 @@ with st.sidebar:
     if st.session_state.errors_list:
         st.markdown(f"## Errors ({len(st.session_state.errors_list)})")
         for err in st.session_state.errors_list[:5]:
-            st.caption(f"🔴 {err['error']}")
+            st.caption(f"{err['error']}")
         if st.button("Clear Errors"):
             st.session_state.errors_list = []
             st.rerun()
     else:
         st.markdown("## Errors")
-        st.caption("✅ No errors")
+        st.caption("No errors")
 
 
 # ============================================================================
 # Main Page
 # ============================================================================
 
-st.title("🤖 RAG Query Interface")
+st.title("RAG Query Interface")
 
 # Query input
 query = st.text_input(
@@ -127,7 +127,7 @@ if query:
 
             if result["success"]:
                 data = result["data"]
-                st.success("✅ Query processed")
+                st.success("Query processed")
 
                 # Display response
                 st.markdown("### Response")
@@ -158,7 +158,7 @@ if query:
 
             else:
                 error = result["error"]
-                st.error(f"❌ {error}")
+                st.error(f"{error}")
                 st.session_state.errors_list.insert(0, {"error": error})
 
 # Recent queries
